@@ -1,22 +1,33 @@
-use sdl2::video::{GLContext, Window};
+use std::marker::PhantomData;
 
-pub struct Renderer<'a> {
-    window: &'a Window,
-    _context: GLContext,
+use sdl2::video::*;
+
+use crate::rhi::*;
+
+pub struct Renderer {
+    instance: Instance,
+    device: Device,
+    swapchain: Swapchain,
 }
 
-impl<'a> Renderer<'a> {
-    pub fn new(window: &'a Window, video_subsystem: sdl2::VideoSubsystem) -> Result<Self, String> {
-        gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as *const _);
-        let _context = window.gl_create_context()?;
-        Ok(Self { window, _context })
+impl Renderer {
+    const SHADER: &'static str = include_str!("./shaders/shader.glsl");
+
+    pub fn new(window: &Window) -> Self {
+        let instance = Instance::new(window);
+        let device = instance.new_device();
+        let swapchain = instance.new_swapchain(1);
+
+        Self {
+            instance,
+            device,
+            swapchain,
+        }
     }
 
-    pub fn render(&mut self) -> Result<(), String> {
+    pub fn run(&mut self) {
         unsafe { gl::ClearColor(1.0, 0.0, 0.0, 1.0) };
         unsafe { gl::Clear(gl::COLOR_BUFFER_BIT) };
-
-        self.window.gl_swap_window();
-        Ok(())
+        self.swapchain.present();
     }
 }
