@@ -1,8 +1,30 @@
+use std::cell::*;
 use std::ffi::*;
-use std::marker::PhantomData;
-use std::rc::Rc;
+use std::marker::*;
+use std::rc::*;
 
 use sdl2::video::*;
+
+macro_rules! gl {
+    ($f: expr) => {{
+        let value = $f;
+        let error = gl::GetError();
+        let result = match error {
+            gl::NO_ERROR => Ok(value),
+            gl::INVALID_ENUM
+            | gl::INVALID_VALUE
+            | gl::INVALID_OPERATION
+            | gl::INVALID_FRAMEBUFFER_OPERATION
+            | gl::OUT_OF_MEMORY
+            | gl::STACK_UNDERFLOW
+            | gl::STACK_OVERFLOW => Err(error),
+            #[allow(unused_unsafe)]
+            _ => unsafe { std::hint::unreachable_unchecked() },
+        };
+
+        result
+    }};
+}
 
 pub struct InstanceShared {
     window_context: Rc<WindowContext>,
@@ -21,15 +43,22 @@ impl Instance {
         }))
     }
 
-    pub fn new_device(&self) -> Device {
-        Device {
+    pub fn new_device<'a>(&self, debug: bool) -> Device<'a> {
+        if debug {}
+
+        let shared = DeviceShared {
+            vbos: Vec::with_capacity(16),
+            ibos: Vec::with_capacity(16),
             _instance: Rc::clone(&self.0),
-        }
+        };
+
+        Device(Rc::new(RefCell::new(shared)), PhantomData)
     }
 
     pub fn new_swapchain(&self, nframebuffers: usize) -> Swapchain {
         let mut framebuffers = vec![0; nframebuffers];
-        unsafe { gl::CreateFramebuffers(nframebuffers as i32, framebuffers.as_mut_ptr()) };
+        let n = nframebuffers as i32;
+        unsafe { gl!(gl::CreateFramebuffers(n, framebuffers.as_mut_ptr())) }.unwrap();
 
         let framebuffers = framebuffers.into_iter().map(Framebuffer).collect();
 
@@ -41,39 +70,53 @@ impl Instance {
     }
 }
 
-pub struct Device {
+struct DeviceShared {
+    vbos: Vec<u32>,
+    ibos: Vec<u32>,
     _instance: Rc<InstanceShared>,
 }
 
-impl Device {
-    pub fn new_buffer<T>(&self, capacity: usize, data: Option<&[T]>) -> Buffer<T> {
-        let mut handle = 0;
-        unsafe { gl::CreateBuffers(1, &mut handle) };
+pub struct Device<'a>(Rc<RefCell<DeviceShared>>, PhantomData<&'a ()>);
 
-        unsafe {
-            gl::NamedBufferStorage(
-                handle,
-                capacity as isize,
-                std::ptr::null(),
-                gl::MAP_READ_BIT | gl::MAP_WRITE_BIT,
-            )
+impl<'a> Device<'a> {
+    pub fn new_buffer<T, const R: bool, const W: bool>(&self, b: BufferInit<T>) -> Buffer<T, R, W> {
+        let mut vbo = 0;
+        unsafe { gl::CreateBuffers(1, &mut vbo) };
+
+        let mut flags = if R { gl::MAP_READ_BIT } else { 0 };
+        W.then(|| flags |= gl::MAP_WRITE_BIT);
+
+        let (capacity, data) = match b {
+            BufferInit::Data(_data) => todo!(),
+            BufferInit::Capacity(capacity) => (capacity, std::ptr::null()),
         };
 
-        unsafe { gl::MapNamedBuffer(handle, gl::WRITE_ONLY) };
+        unsafe { gl!(gl::NamedBufferStorage(vbo, capacity as isize, data, flags)) }.unwrap();
 
-        todo!()
+        Buffer {
+            vbo,
+            capacity,
+            len: 0,
+            _device: Rc::clone(&self.0),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn set_vertex_buffers<T, const R: bool, const W: bool>(&self, bufs: &'a [Buffer<T, R, W>]) {
+        let mut device = self.0.borrow_mut();
+        device.vbos.clear();
+        device.vbos.extend(bufs.into_iter().map(|b| b.vbo));
+    }
+
+    pub fn set_index_buffers<const R: bool, const W: bool>(&self, bufs: &'a [Buffer<u32, R, W>]) {
+        let mut device = self.0.borrow_mut();
+        device.ibos.clear();
+        device.ibos.extend(bufs.into_iter().map(|b| b.vbo));
     }
 
     pub fn submit(&self) {
         todo!()
     }
-
-    // pub fn new_texture(&self, width: usize, height: usize) -> Texture {
-    //     let mut handle = 0;
-    //     unsafe { gl::CreateTextures(gl::TEXTURE_2D, 1, &mut handle) };
-
-    //     unsafe { gl::TextureStorage2D(handle, 2, gl::SRGB8, width as isize,
-    // height as isize) }; }
 }
 
 pub struct Swapchain {
@@ -94,73 +137,41 @@ impl Swapchain {
 
 pub struct Framebuffer(u32);
 
-pub trait Resource {
-    type Item;
-
-    fn handle(&self) -> u32;
-
+pub trait BufferApi {
     fn len(&self) -> usize;
 }
 
-pub struct Buffer<T> {
-    handle: u32,
-    len: usize,
+pub enum BufferInit<'a, T> {
+    Data(&'a [T]),
+    Capacity(usize),
+}
+
+pub struct Buffer<T, const R: bool, const W: bool> {
+    vbo: u32,
     capacity: usize,
+    len: usize,
+    _device: Rc<RefCell<DeviceShared>>,
     _marker: PhantomData<T>,
 }
 
-impl<T> Buffer<T> {
+impl<T, const W: bool> Buffer<T, true, W> {
     pub fn map_read(&self) -> MapRead<Self> {
-        MapRead::new(self)
-    }
-
-    pub fn map_write(&mut self) -> MapWrite<Self> {
-        MapWrite::new(self)
+        MapRead(self)
     }
 }
 
-pub struct Texture;
-
-impl<T> Resource for Buffer<T> {
-    type Item = T;
-
-    fn handle(&self) -> u32 {
-        self.handle
+impl<T, const R: bool> Buffer<T, R, true> {
+    pub fn map_write(&mut self) -> MapWrite<Self> {
+        MapWrite(self)
     }
+}
 
+impl<T, const R: bool, const W: bool> BufferApi for Buffer<T, R, W> {
     fn len(&self) -> usize {
         self.len
     }
 }
 
-pub struct MapRead<'a, R: Resource>(&'a R);
+pub struct MapRead<'a, B: BufferApi>(&'a B);
 
-impl<'a, R: Resource> MapRead<'a, R> {
-    pub fn new(resource: &'a R) -> Self {
-        unsafe { gl::MapNamedBuffer(resource.handle(), gl::MAP_READ_BIT) };
-        Self(resource)
-    }
-}
-
-impl<'a, R: Resource> Drop for MapRead<'a, R> {
-    fn drop(&mut self) {
-        unsafe { gl::UnmapNamedBuffer(self.0.handle()) };
-    }
-}
-
-pub struct MapWrite<'a, R: Resource>(&'a mut R, *mut c_void);
-
-impl<'a, R: Resource> MapWrite<'a, R> {
-    pub fn new(resource: &'a mut R) -> Self {
-        let ptr = unsafe { gl::MapNamedBuffer(resource.handle(), gl::MAP_WRITE_BIT) };
-        Self(resource, ptr)
-    }
-
-    pub fn write(&mut self) {}
-}
-
-impl<'a, R: Resource> Drop for MapWrite<'a, R> {
-    fn drop(&mut self) {
-        unsafe { gl::UnmapNamedBuffer(self.0.handle()) };
-    }
-}
+pub struct MapWrite<'a, B: BufferApi>(&'a mut B);
