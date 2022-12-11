@@ -1,4 +1,7 @@
+#![feature(adt_const_params)]
+
 use sdl2::event::*;
+use sdl2::keyboard::*;
 use sdl2::video::*;
 use sdl2::*;
 
@@ -24,7 +27,7 @@ fn main() -> Result<(), String> {
     let video_subsystem = sdl.video()?;
     let audio_subsystem = sdl.audio()?;
 
-    let window = setup_window(&video_subsystem);
+    let mut window = setup_window(&video_subsystem);
 
     let mut renderer = Renderer::new(&window);
 
@@ -32,9 +35,23 @@ fn main() -> Result<(), String> {
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. } => {
-                    break 'running;
+                Event::KeyDown { keycode, .. } => {
+                    if let Some(keycode) = keycode {
+                        match keycode {
+                            Keycode::Escape => match window.fullscreen_state() {
+                                FullscreenType::Desktop => {
+                                    window.set_fullscreen(FullscreenType::Off).unwrap();
+                                }
+                                FullscreenType::Off => {
+                                    window.set_fullscreen(FullscreenType::Desktop).unwrap();
+                                }
+                                _ => {}
+                            },
+                            _ => {}
+                        }
+                    }
                 }
+                Event::Quit { .. } => break 'running,
                 _ => {}
             }
         }
