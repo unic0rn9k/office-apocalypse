@@ -212,6 +212,12 @@ pub struct Buffer<T, const R: bool, const W: bool> {
     _marker: PhantomData<T>,
 }
 
+impl<T, const R: bool, const W: bool> Drop for Buffer<T, R, W> {
+    fn drop(&mut self) {
+        unsafe { gl::DeleteBuffers(1, &self.id) }
+    }
+}
+
 impl<T, const W: bool> Buffer<T, true, W> {
     pub fn map_read(&self) -> MapRead<Self> {
         MapRead(self)
@@ -256,4 +262,10 @@ impl Stage for PixelStage {
 pub struct Shader<S: Stage> {
     id: u32,
     _marker: PhantomData<S>,
+}
+
+impl<S: Stage> Drop for Shader<S> {
+    fn drop(&mut self) {
+        unsafe { gl::DeleteShader(self.id) }
+    }
 }
