@@ -11,7 +11,7 @@ mod rhi;
 fn setup_window(video_subsystem: &VideoSubsystem) -> Window {
     let window = video_subsystem
         .window("Office Apocalypse", 640, 480)
-        .fullscreen_desktop()
+        .resizable()
         .allow_highdpi()
         .opengl()
         .build()
@@ -23,7 +23,7 @@ fn setup_window(video_subsystem: &VideoSubsystem) -> Window {
 fn main() -> Result<(), String> {
     let sdl = sdl2::init()?;
     let video_subsystem = sdl.video()?;
-    let audio_subsystem = sdl.audio()?;
+    // let audio_subsystem = sdl.audio()?;
 
     let mut window = setup_window(&video_subsystem);
 
