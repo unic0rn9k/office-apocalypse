@@ -1,5 +1,3 @@
-#![feature(adt_const_params)]
-
 use sdl2::event::*;
 use sdl2::keyboard::*;
 use sdl2::video::*;

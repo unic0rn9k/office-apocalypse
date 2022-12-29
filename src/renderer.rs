@@ -18,6 +18,9 @@ impl Renderer<'_> {
         let device = instance.new_device(true);
         let swapchain = instance.new_swapchain(1);
 
+        let vertex_shader = device.new_shader(VertexStage, Self::VERTEX_SHADER);
+        let pixel_shader = device.new_shader(PixelStage, Self::PIXEL_SHADER);
+
         Self {
             instance,
             device,
@@ -48,6 +51,9 @@ impl Renderer<'_> {
         // unsafe { gl::GetBin}
 
         // unsafe { gl::DrawArrays(gl::TRIANGLES, 0, 2) };
+
+        self.device.set_vertex_buffers(&[&vb]);
+        self.device.draw();
 
         self.swapchain.present();
     }

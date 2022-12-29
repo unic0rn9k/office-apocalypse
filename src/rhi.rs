@@ -44,11 +44,14 @@ impl Instance {
     }
 
     pub fn new_device<'a>(&self, debug: bool) -> Device<'a> {
-        if debug {}
+        if debug {
+            unsafe { gl::Enable(gl::DEBUG_OUTPUT_SYNCHRONOUS) }
+            unsafe { gl::DebugMessageCallback(Some(Self::debug_callback), std::ptr::null()) };
+        }
 
         let shared = DeviceShared {
             vbos: Vec::with_capacity(16),
-            ibos: Vec::with_capacity(16),
+            ibo: None,
             _instance: Rc::clone(&self.0),
         };
 
@@ -68,11 +71,24 @@ impl Instance {
             framebuffers,
         }
     }
+
+    extern "system" fn debug_callback(
+        src: u32,
+        _type: u32,
+        id: u32,
+        sev: u32,
+        len: i32,
+        msg: *const i8,
+        _: *mut c_void,
+    ) {
+        let msg = unsafe { CStr::from_ptr(msg) }.to_str().unwrap();
+        println!("{msg}");
+    }
 }
 
 struct DeviceShared {
     vbos: Vec<u32>,
-    ibos: Vec<u32>,
+    ibo: Option<u32>,
     _instance: Rc<InstanceShared>,
 }
 
@@ -80,8 +96,8 @@ pub struct Device<'a>(Rc<RefCell<DeviceShared>>, PhantomData<&'a ()>);
 
 impl<'a> Device<'a> {
     pub fn new_buffer<T, const R: bool, const W: bool>(&self, b: BufferInit<T>) -> Buffer<T, R, W> {
-        let mut vbo = 0;
-        unsafe { gl::CreateBuffers(1, &mut vbo) };
+        let mut id = 0;
+        unsafe { gl::CreateBuffers(1, &mut id) };
 
         let mut flags = if R { gl::MAP_READ_BIT } else { 0 };
         W.then(|| flags |= gl::MAP_WRITE_BIT);
@@ -92,10 +108,10 @@ impl<'a> Device<'a> {
         };
 
         let size = (std::mem::size_of::<T>() * capacity) as isize;
-        unsafe { gl!(gl::NamedBufferStorage(vbo, size, data, flags)) }.unwrap();
+        unsafe { gl!(gl::NamedBufferStorage(id, size, data, flags)) }.unwrap();
 
         Buffer {
-            vbo,
+            id,
             capacity,
             len: 0,
             _device: Rc::clone(&self.0),
@@ -103,21 +119,62 @@ impl<'a> Device<'a> {
         }
     }
 
-    pub fn set_vertex_buffers<T, const R: bool, const W: bool>(&self, bufs: &'a [Buffer<T, R, W>]) {
+    pub fn new_shader<S: Stage>(&self, stage: S, src: &str) -> Shader<S> {
+        let stage = match S::STAGE_TYPE {
+            StageType::VertexStage => gl::VERTEX_SHADER,
+            StageType::PixelStage => gl::FRAGMENT_SHADER,
+        };
+
+        let id = unsafe { gl!(gl::CreateShader(stage)) }.unwrap();
+
+        let string = &(src.as_ptr() as *const _);
+        let length = src.len() as _;
+        unsafe { gl!(gl::ShaderSource(id, 1, string, &length)) }.unwrap();
+
+        unsafe { gl!(gl::CompileShader(id)) }.unwrap();
+
+        let mut success = 0;
+        unsafe { gl!(gl::GetShaderiv(id, gl::COMPILE_STATUS, &mut success)) }.unwrap();
+        if success != 1 {
+            let mut msg: [u8; 512] = [0; 512];
+            unsafe {
+                gl::GetShaderInfoLog(
+                    id,
+                    msg.len() as _,
+                    std::ptr::null_mut(),
+                    msg.as_mut_ptr() as *mut _,
+                )
+            };
+
+            let s = std::str::from_utf8(msg.as_slice()).unwrap();
+            panic!("{s}");
+        }
+
+        Shader {
+            id,
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn set_vertex_buffers<T, const R: bool, const W: bool>(
+        &self,
+        bufs: &[&'a Buffer<T, R, W>],
+    ) {
         let mut device = self.0.borrow_mut();
         device.vbos.clear();
-        device.vbos.extend(bufs.into_iter().map(|b| b.vbo));
+        device.vbos.extend(bufs.into_iter().map(|b| b.id));
     }
 
-    pub fn set_index_buffers<const R: bool, const W: bool>(&self, bufs: &'a [Buffer<u32, R, W>]) {
+    pub fn set_index_buffer<const R: bool, const W: bool>(&self, buf: &'a Buffer<u32, R, W>) {
         let mut device = self.0.borrow_mut();
-        device.ibos.clear();
-        device.ibos.extend(bufs.into_iter().map(|b| b.vbo));
+        device.ibo = Some(buf.id);
     }
 
-    pub fn submit(&self) {
-        todo!()
+    pub fn draw(&self) {
+        unsafe { gl!(gl::DrawArrays(gl::TRIANGLES, 0, 3)) }.unwrap();
     }
+
+    pub fn draw_indexed(&self) {}
 }
 
 pub struct Swapchain {
@@ -148,7 +205,7 @@ pub enum BufferInit<'a, T> {
 }
 
 pub struct Buffer<T, const R: bool, const W: bool> {
-    vbo: u32,
+    id: u32,
     capacity: usize,
     len: usize,
     _device: Rc<RefCell<DeviceShared>>,
@@ -176,3 +233,27 @@ impl<T, const R: bool, const W: bool> BufferApi for Buffer<T, R, W> {
 pub struct MapRead<'a, B: BufferApi>(&'a B);
 
 pub struct MapWrite<'a, B: BufferApi>(&'a mut B);
+
+pub enum StageType {
+    VertexStage,
+    PixelStage,
+}
+
+pub trait Stage {
+    const STAGE_TYPE: StageType;
+}
+
+pub struct VertexStage;
+impl Stage for VertexStage {
+    const STAGE_TYPE: StageType = StageType::VertexStage;
+}
+
+pub struct PixelStage;
+impl Stage for PixelStage {
+    const STAGE_TYPE: StageType = StageType::PixelStage;
+}
+
+pub struct Shader<S: Stage> {
+    id: u32,
+    _marker: PhantomData<S>,
+}
