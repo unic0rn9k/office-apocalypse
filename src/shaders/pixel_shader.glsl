@@ -1,8 +1,9 @@
 #version 450 core
-in vec3 vertex_color;
+
+uniform sampler2D texture_sampler;
+
+in vec2 texcoord;
 
 out vec4 color;
 
-void main() {
-    color = vec4(vertex_color, 1.0);
-}
+void main() { color = texture(texture_sampler, texcoord); }

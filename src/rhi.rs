@@ -53,6 +53,8 @@ impl Instance {
         let mut vao = 0;
         unsafe { gl!(gl::CreateVertexArrays(1, &mut vao)) }.unwrap();
 
+        unsafe { gl!(gl::Enable(gl::DEPTH_TEST)) }.unwrap();
+
         let shared = DeviceShared {
             vao,
             _instance: Rc::clone(&self.0),
@@ -185,6 +187,12 @@ impl<'a> Device<'a> {
             panic!("{s}");
         }
 
+        // let i = unsafe { gl::GetUniformBlockIndex(id, b"Matrix\0".as_ptr() as *const
+        // _) }; println!("{i}");
+
+        // let i = unsafe { gl::GetUniformBlockIndex(id, b"Light\0".as_ptr() as *const
+        // _) }; println!("{i}");
+
         ShaderProgram { id }
     }
 
@@ -228,7 +236,7 @@ impl<'a> Device<'a> {
             gl!(gl::VertexArrayAttribFormat(
                 device.vao,
                 1,
-                3,
+                2,
                 gl::FLOAT,
                 gl::FALSE,
                 (3 * std::mem::size_of::<f32>()) as _,
@@ -245,7 +253,7 @@ impl<'a> Device<'a> {
         unsafe { gl!(gl::VertexArrayElementBuffer(device.vao, buf.id)) }.unwrap();
     }
 
-    pub fn set_shaders(&self, program: &'a ShaderProgram) {
+    pub fn set_shader_program(&self, program: &'a ShaderProgram) {
         let device = self.0.borrow();
         unsafe { gl!(gl::UseProgram(program.id)) }.unwrap();
     }
@@ -304,13 +312,13 @@ pub trait BufferApi {
     fn len(&self) -> usize;
 }
 
-pub enum BufferInit<'a, T> {
+pub enum BufferInit<'a, T: BufferLayout> {
     Data(&'a [T]),
     Capacity(usize),
 }
 
 pub struct Buffer<T: BufferLayout, const R: bool, const W: bool> {
-    id: u32,
+    pub id: u32,
     capacity: usize,
     len: usize,
     _device: Rc<RefCell<DeviceShared>>,
@@ -394,7 +402,7 @@ pub type VertexShader = Shader<VertexStage>;
 pub type PixelShader = Shader<PixelStage>;
 
 pub struct ShaderProgram {
-    id: u32,
+    pub id: u32,
 }
 
 impl Drop for ShaderProgram {
