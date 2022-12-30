@@ -79,6 +79,13 @@ fn main() -> Result<(), String> {
                         }
                     }
                 }
+                Event::Window { win_event, .. } => match win_event {
+                    WindowEvent::SizeChanged(width, height) => {
+                        renderer.resize(width as u32, height as u32);
+                        scene.camera.resize(width as f32, height as f32);
+                    }
+                    _ => {}
+                },
                 Event::Quit { .. } => break 'running,
                 _ => {}
             }

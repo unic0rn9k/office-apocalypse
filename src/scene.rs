@@ -12,6 +12,8 @@ pub struct Camera {
 }
 
 impl Camera {
+    const FOV: f32 = std::f32::consts::FRAC_PI_2;
+
     pub fn new(position: Vec3, aspect: f32) -> Self {
         let direction = Vec3::new(0.0, 0.0, 1.0);
 
@@ -19,7 +21,7 @@ impl Camera {
             position,
             direction,
             view: Mat4::look_at_rh(position, position + direction, Vec3::new(0.0, 1.0, 0.0)),
-            projection: Mat4::perspective_rh_gl(std::f32::consts::FRAC_PI_2, aspect, 0.1, 100.0),
+            projection: Mat4::perspective_rh_gl(Self::FOV, aspect, 0.1, 100.0),
         }
     }
 
@@ -39,5 +41,9 @@ impl Camera {
             self.position + self.direction,
             Vec3::new(0.0, 1.0, 0.0),
         );
+    }
+
+    pub fn resize(&mut self, width: f32, height: f32) {
+        self.projection = Mat4::perspective_rh_gl(Self::FOV, width / height, 0.1, 100.0);
     }
 }

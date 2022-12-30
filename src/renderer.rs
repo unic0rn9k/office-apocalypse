@@ -146,6 +146,10 @@ impl Renderer<'_> {
 
         self.swapchain.present();
     }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        unsafe { gl!(gl::Viewport(0, 0, width as _, height as _)) }.unwrap();
+    }
 }
 
 unsafe impl BufferLayout for Vec2 {

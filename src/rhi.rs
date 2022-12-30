@@ -26,6 +26,8 @@ macro_rules! gl {
     }};
 }
 
+pub use gl;
+
 pub struct InstanceShared {
     window_context: Rc<WindowContext>,
     _context: GLContext,
