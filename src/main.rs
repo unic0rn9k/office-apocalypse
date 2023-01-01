@@ -11,6 +11,9 @@ mod renderer;
 mod rhi;
 mod scene;
 
+const WIDTH: u32 = 640;
+const HEIGHT: u32 = 480;
+
 fn setup_window(video_subsystem: &VideoSubsystem) -> Window {
     video_subsystem.gl_attr().set_context_version(4, 6);
     video_subsystem
@@ -18,7 +21,7 @@ fn setup_window(video_subsystem: &VideoSubsystem) -> Window {
         .set_context_profile(GLProfile::Core);
 
     let window = video_subsystem
-        .window("Office Apocalypse", 640, 480)
+        .window("Office Apocalypse", WIDTH, HEIGHT)
         .resizable()
         .allow_highdpi()
         .opengl()
@@ -38,7 +41,7 @@ fn main() -> Result<(), String> {
     let mut renderer = Renderer::new(&window);
 
     let mut scene = Scene {
-        camera: Camera::new(Vec3::new(0.0, 0.0, -2.0), 640.0 / 480.0),
+        camera: Camera::new(Vec3::new(0.0, 0.0, -2.0), WIDTH as f32 / HEIGHT as f32),
     };
 
     let mut event_pump = sdl.event_pump()?;
