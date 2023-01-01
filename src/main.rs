@@ -10,6 +10,7 @@ use crate::scene::*;
 mod renderer;
 mod rhi;
 mod scene;
+mod vox;
 
 fn setup_window(video_subsystem: &VideoSubsystem) -> Window {
     video_subsystem.gl_attr().set_context_version(4, 6);
