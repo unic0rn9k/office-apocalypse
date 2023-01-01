@@ -65,7 +65,16 @@ impl Instance {
         Device(Rc::new(RefCell::new(shared)), PhantomData)
     }
 
-    pub fn new_swapchain(&self, nframebuffers: usize) -> Swapchain {
+    pub fn new_swapchain(&self, nframebuffers: usize, vsync: bool) -> Swapchain {
+        let interval = if vsync {
+            SwapInterval::VSync
+        } else {
+            SwapInterval::Immediate
+        };
+
+        let window = unsafe { Window::from_ref(Rc::clone(&self.0.window_context)) };
+        let _ = window.subsystem().gl_set_swap_interval(interval);
+
         let mut framebuffers = vec![0; nframebuffers];
         let n = nframebuffers as i32;
         unsafe { gl!(gl::CreateFramebuffers(n, framebuffers.as_mut_ptr())) }.unwrap();
@@ -74,7 +83,7 @@ impl Instance {
 
         Swapchain {
             _instance: Rc::clone(&self.0),
-            window: unsafe { Window::from_ref(Rc::clone(&self.0.window_context)) },
+            window,
             framebuffers,
         }
     }

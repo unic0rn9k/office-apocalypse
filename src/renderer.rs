@@ -50,7 +50,7 @@ impl Renderer<'_> {
     pub fn new(window: &Window) -> Self {
         let instance = Instance::new(window, true);
         let device = instance.new_device();
-        let swapchain = instance.new_swapchain(1);
+        let swapchain = instance.new_swapchain(1, true);
 
         let vertex_shader = device.new_shader(VertexStage, Self::VERTEX_SHADER);
         let pixel_shader = device.new_shader(PixelStage, Self::PIXEL_SHADER);
