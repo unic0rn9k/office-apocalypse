@@ -10,12 +10,14 @@ use crate::scene::*;
 mod renderer;
 mod rhi;
 mod scene;
+mod vox;
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
 
 fn setup_window(video_subsystem: &VideoSubsystem) -> Window {
     video_subsystem.gl_attr().set_context_version(4, 6);
+    video_subsystem.gl_attr().set_multisample_samples(4);
     video_subsystem
         .gl_attr()
         .set_context_profile(GLProfile::Core);
@@ -93,10 +95,11 @@ fn main() -> Result<(), String> {
                 _ => {}
             }
         }
+
         let start = std::time::Instant::now();
         renderer.run(&scene);
         let ft = std::time::Instant::now().duration_since(start);
-        // println!("{} frames/s", 1.0 / ft.as_secs_f32());
+        println!("{} frames/s", 1.0 / ft.as_secs_f32());
     }
 
     Ok(())
