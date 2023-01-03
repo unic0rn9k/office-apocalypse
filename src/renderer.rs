@@ -3,6 +3,7 @@ use sdl2::video::*;
 
 use crate::rhi::*;
 use crate::scene::*;
+use crate::vox;
 
 pub struct Renderer<'a> {
     instance: Instance,
@@ -47,10 +48,10 @@ impl Renderer<'_> {
     // 	6, 7, 3
     // ];
 
-    pub fn new(window: &Window) -> Self {
+    pub fn new(window: &Window, vsync: bool) -> Self {
         let instance = Instance::new(window, true);
         let device = instance.new_device();
-        let swapchain = instance.new_swapchain(1, true);
+        let swapchain = instance.new_swapchain(1, vsync);
 
         let vertex_shader = device.new_shader(VertexStage, Self::VERTEX_SHADER);
         let pixel_shader = device.new_shader(PixelStage, Self::PIXEL_SHADER);
@@ -101,6 +102,7 @@ impl Renderer<'_> {
         }
     }
 
+    /// Renders a single frame
     pub fn run(&mut self, scene: &Scene) {
         let Self { device, .. } = self;
 
@@ -110,7 +112,7 @@ impl Renderer<'_> {
         let vb: Buffer<_, false, false> = device.new_buffer(BufferInit::Data(&self.vertices));
         let ib: Buffer<_, false, false> = device.new_buffer(BufferInit::Data(&self.indices));
 
-        let vp = scene.camera.projection().clone() * scene.camera.view().clone();
+        let vp = *scene.camera.projection() * *scene.camera.view();
         let ub: Buffer<_, false, false> = device.new_buffer(BufferInit::Data(&[vp]));
 
         let mut texture = u32::MAX;
