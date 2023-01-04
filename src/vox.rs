@@ -1,10 +1,13 @@
+// https://github.com/ephtracy/voxel-model/blob/master/MagicaVoxel-file-format-vox.txt
+// https://github.com/ephtracy/voxel-model/blob/master/MagicaVoxel-file-format-vox-extension.txt
+
 use std::fs::*;
 use std::io::*;
+use std::mem::*;
 use std::path::*;
 
 use byteorder::*;
 use glam::*;
-use image::EncodableLayout;
 
 use crate::scene::*;
 
@@ -41,9 +44,6 @@ struct VoxMaterial {
     specular: Option<f32>,
     ior: Option<f32>,
 }
-
-// https://github.com/ephtracy/voxel-model/blob/master/MagicaVoxel-file-format-vox.txt
-// https://github.com/ephtracy/voxel-model/blob/master/MagicaVoxel-file-format-vox-extension.txt
 
 fn parse_header(input: &mut impl ReadBytesExt) -> ([u8; 4], i32) {
     let signature = {
@@ -132,32 +132,56 @@ fn parse_models(chunks: &[VoxChunk]) -> Vec<VoxModel> {
 }
 
 fn parse_materials(chunks: &[VoxChunk]) -> Box<[VoxMaterial; 256]> {
-    let palette = {
+    let palette: Vec<[u8; 4]> = {
         let chunk = chunks.iter().find(|c| c.id == "RGBA").unwrap();
         let mut content = Cursor::new(&chunk.content);
 
         let mut buf = Box::new([0; 256 * std::mem::size_of::<u8>() * 4]);
         content.read_exact(buf.as_mut_slice()).unwrap();
 
-        buf
+        buf.into_iter().array_chunks::<4>().collect()
     };
 
-    for chunk in chunks.iter().filter(|c| c.id == "MATL") {
-        let mut content = Cursor::new(&material.content);
-        let id = content.read_u32::<VoxEndian>().unwrap();
-        println!("{id}");
-
+    let mut materials = Box::new([MaybeUninit::<VoxMaterial>::uninit(); 256]);
+    for (i, chunk) in chunks.iter().filter(|c| c.id == "MATL").enumerate() {
+        let mut content = Cursor::new(&chunk.content);
+        let id = content.read_u32::<VoxEndian>().unwrap() as usize;
         let dict = parse_dict(&mut content);
+
+        let mut roughness = 1.0;
+        let mut transparency = 0.0;
+        let mut specular = None;
+        let mut ior = None;
+        for (key, value) in dict {
+            match key.as_str() {
+                "_rough" => roughness = value.parse().unwrap(),
+                "_trans" => transparency = value.parse().unwrap(),
+                "_sp" => specular = Some(value.parse().unwrap()),
+                "_ior" => ior = Some(value.parse().unwrap()),
+                _ => {}
+            }
+        }
+
+        let material = VoxMaterial {
+            diffuse: palette[id - 1],
+            roughness,
+            transparency,
+            specular,
+            ior,
+        };
+
+        materials[i] = MaybeUninit::new(material);
     }
 
-    todo!()
+    // SAFETY:
+    unsafe { std::mem::transmute(materials) }
 }
 
 fn parse_string(input: &mut impl ReadBytesExt) -> String {
     let len = input.read_u32::<VoxEndian>().unwrap() as _;
     let mut buf = vec![0; len];
     input.read_exact(&mut buf).unwrap();
-    unsafe { String::from_utf8(buf) }.unwrap()
+    String::from_utf8(buf).unwrap()
 }
 
 fn parse_dict(input: &mut impl ReadBytesExt) -> Vec<(String, String)> {
@@ -180,16 +204,16 @@ pub fn parse(input: &mut impl ReadBytesExt) -> Vec<Chunk> {
 
     let main = parse_chunk(input).unwrap();
     assert_eq!(main.id, "MAIN");
-    assert!(main.content.is_empty());
 
     let models = parse_models(&main.chunks);
-    // println!("{models:?}");
-
     let materials = parse_materials(&main.chunks);
 
-    // main.chunks.iter().find(|c| c.id == "IMAP").unwrap();
-
     Vec::default()
+}
+
+pub fn open(path: impl AsRef<Path>) -> Vec<Chunk> {
+    let mut file = File::open(path).unwrap();
+    parse(&mut file)
 }
 
 #[cfg(test)]
