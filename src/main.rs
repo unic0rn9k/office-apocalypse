@@ -1,3 +1,5 @@
+#![feature(iter_array_chunks)]
+#![feature(let_chains)]
 #![feature(slice_as_chunks)]
 
 use glam::*;
