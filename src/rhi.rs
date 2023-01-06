@@ -3,6 +3,7 @@ use std::ffi::*;
 use std::marker::*;
 use std::rc::*;
 
+use glam::{Mat3, Mat4, Vec2, Vec3, Vec4};
 use sdl2::video::*;
 
 macro_rules! gl {
@@ -56,6 +57,7 @@ impl Instance {
         unsafe { gl!(gl::CreateVertexArrays(1, &mut vao)) }.unwrap();
 
         unsafe { gl!(gl::Enable(gl::DEPTH_TEST)) }.unwrap();
+        unsafe { gl!(gl::DepthFunc(gl::LEQUAL)) }.unwrap();
 
         let shared = DeviceShared {
             vao,
@@ -89,11 +91,11 @@ impl Instance {
     }
 
     extern "system" fn debug_callback(
-        src: u32,
+        _src: u32,
         _type: u32,
-        id: u32,
-        sev: u32,
-        len: i32,
+        _id: u32,
+        _sev: u32,
+        _len: i32,
         msg: *const i8,
         _: *mut c_void,
     ) {
@@ -120,9 +122,9 @@ impl<'a> Device<'a> {
         let mut flags = if R { gl::MAP_READ_BIT } else { 0 };
         W.then(|| flags |= gl::MAP_WRITE_BIT);
 
-        let (capacity, data) = match b {
-            BufferInit::Data(data) => (data.len(), data.as_ptr() as *const _),
-            BufferInit::Capacity(capacity) => (capacity, std::ptr::null()),
+        let (capacity, data, len) = match b {
+            BufferInit::Data(data) => (data.len(), data.as_ptr() as *const _, data.len()),
+            BufferInit::Capacity(capacity) => (capacity, std::ptr::null(), 0),
         };
 
         let size = (std::mem::size_of::<T>() * capacity) as isize;
@@ -131,7 +133,7 @@ impl<'a> Device<'a> {
         Buffer {
             id,
             capacity,
-            len: 0,
+            len,
             _device: Rc::clone(&self.0),
             _marker: PhantomData,
         }
@@ -139,8 +141,9 @@ impl<'a> Device<'a> {
 
     pub fn new_shader<S: Stage>(&self, _stage: S, src: &str) -> Shader<S> {
         let stage = match S::STAGE_TYPE {
-            StageType::VertexStage => gl::VERTEX_SHADER,
-            StageType::PixelStage => gl::FRAGMENT_SHADER,
+            StageType::Vertex => gl::VERTEX_SHADER,
+            StageType::Geometry => gl::GEOMETRY_SHADER,
+            StageType::Pixel => gl::FRAGMENT_SHADER,
         };
 
         let id = unsafe { gl!(gl::CreateShader(stage)) }.unwrap();
@@ -198,16 +201,10 @@ impl<'a> Device<'a> {
             panic!("{s}");
         }
 
-        // let i = unsafe { gl::GetUniformBlockIndex(id, b"Matrix\0".as_ptr() as *const
-        // _) }; println!("{i}");
-
-        // let i = unsafe { gl::GetUniformBlockIndex(id, b"Light\0".as_ptr() as *const
-        // _) }; println!("{i}");
-
         ShaderProgram { id }
     }
 
-    // TODO(Bech): Allow for multiple buffers with differen layouts.
+    // TODO(Bech): Allow for multiple buffers with different layouts.
     pub fn set_vertex_buffers<T, const R: bool, const W: bool>(&self, bufs: &[&'a Buffer<T, R, W>])
     where
         T: BufferLayout,
@@ -265,7 +262,7 @@ impl<'a> Device<'a> {
     }
 
     pub fn set_shader_program(&self, program: &'a ShaderProgram) {
-        let device = self.0.borrow();
+        let _device = self.0.borrow();
         unsafe { gl!(gl::UseProgram(program.id)) }.unwrap();
     }
 
@@ -289,6 +286,23 @@ impl<'a> Device<'a> {
         }
         .unwrap();
     }
+
+    pub fn draw_indexed_instanced(&self, indices: usize, instances: usize) {
+        let device = self.0.borrow();
+
+        unsafe {
+            gl!(gl::BindVertexArray(device.vao)).unwrap();
+
+            gl!(gl::DrawElementsInstanced(
+                gl::TRIANGLES,
+                indices as _,
+                gl::UNSIGNED_INT,
+                std::ptr::null(),
+                instances as _
+            ))
+            .unwrap()
+        }
+    }
 }
 
 pub struct Swapchain {
@@ -309,19 +323,52 @@ impl Swapchain {
 
 pub struct Framebuffer(u32);
 
+pub enum Format {
+    F32,
+    Vec2,
+    Vec3,
+    Vec4,
+    Mat3,
+    Mat4,
+    U32,
+}
+
+///
+///
+/// # Safety
 pub unsafe trait BufferLayout: Sized {
-    const LAYOUT: &'static [(usize, gl::types::GLenum)];
+    const LAYOUT: &'static [Format];
+    const PADDING: usize;
+    const COPYABLE: bool = false;
 
-    // fn to_bytes(&self) -> Vec<u8>;
+    fn to_bytes(items: &[Self]) -> Vec<u8>;
 }
 
-unsafe impl BufferLayout for u32 {
-    const LAYOUT: &'static [(usize, gl::types::GLenum)] = &[(0, gl::UNSIGNED_INT)];
+macro_rules! generate_layouts {
+    ([$($layout:ident => $format:ident),+]) => {
+        $(
+            unsafe impl BufferLayout for $layout {
+                const LAYOUT: &'static [Format] = &[Format::$format];
+                const PADDING: usize = 0;
+                const COPYABLE: bool = true;
+
+                fn to_bytes(_items: &[Self]) -> Vec<u8> {
+                    unimplemented!()
+                }
+            }
+        )+
+    };
 }
 
-pub trait BufferApi {
-    fn len(&self) -> usize;
-}
+generate_layouts!([
+    f32 => F32,
+    Vec2 => Vec2,
+    Vec3 => Vec3,
+    Vec4 => Vec4,
+    Mat3 => Mat3,
+    Mat4 => Mat4,
+    u32 => U32
+]);
 
 pub enum BufferInit<'a, T: BufferLayout> {
     Data(&'a [T]),
@@ -336,49 +383,59 @@ pub struct Buffer<T: BufferLayout, const R: bool, const W: bool> {
     _marker: PhantomData<T>,
 }
 
-impl<T, const R: bool, const W: bool> Drop for Buffer<T, R, W>
-where
-    T: BufferLayout,
-{
+impl<T: BufferLayout, const R: bool, const W: bool> Buffer<T, R, W> {
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+}
+
+impl<T: BufferLayout, const R: bool, const W: bool> Drop for Buffer<T, R, W> {
     fn drop(&mut self) {
         unsafe { gl::DeleteBuffers(1, &self.id) }
     }
 }
 
-impl<T, const W: bool> Buffer<T, true, W>
-where
-    T: BufferLayout,
-{
-    pub fn map_read(&self) -> MapRead<Self> {
+impl<T: BufferLayout, const W: bool> Buffer<T, true, W> {
+    pub fn map_read(&self) -> MapRead<T, W> {
         MapRead(self)
     }
 }
 
-impl<T, const R: bool> Buffer<T, R, true>
-where
-    T: BufferLayout,
-{
-    pub fn map_write(&mut self) -> MapWrite<Self> {
+impl<T: BufferLayout, const R: bool> Buffer<T, R, true> {
+    pub fn map_write(&mut self) -> MapWrite<T, R> {
         MapWrite(self)
     }
 }
 
-impl<T, const R: bool, const W: bool> BufferApi for Buffer<T, R, W>
-where
-    T: BufferLayout,
-{
-    fn len(&self) -> usize {
-        self.len
+pub struct MapRead<'a, T: BufferLayout, const W: bool>(&'a Buffer<T, true, W>);
+
+pub struct MapWrite<'a, T: BufferLayout, const R: bool>(&'a mut Buffer<T, R, true>);
+
+impl<'a, T: BufferLayout, const R: bool> MapWrite<'a, T, R> {
+    pub fn write(&self, items: &[T]) {
+        let buffer = &self.0;
+        assert!(buffer.capacity() >= items.len());
+
+        let mapped = unsafe { gl!(gl::MapNamedBuffer(buffer.id, gl::WRITE_ONLY)) }.unwrap();
+        if T::COPYABLE && T::PADDING == 0 {
+            let count = items.len() * std::mem::size_of::<T>();
+            unsafe { std::ptr::copy(items.as_ptr() as *const _, mapped, count) };
+        } else {
+            todo!()
+        }
+
+        unsafe { gl!(gl::UnmapNamedBuffer(buffer.id)) }.unwrap();
     }
 }
 
-pub struct MapRead<'a, B: BufferApi>(&'a B);
-
-pub struct MapWrite<'a, B: BufferApi>(&'a mut B);
-
 pub enum StageType {
-    VertexStage,
-    PixelStage,
+    Vertex,
+    Geometry,
+    Pixel,
 }
 
 pub trait Stage {
@@ -387,12 +444,17 @@ pub trait Stage {
 
 pub struct VertexStage;
 impl Stage for VertexStage {
-    const STAGE_TYPE: StageType = StageType::VertexStage;
+    const STAGE_TYPE: StageType = StageType::Vertex;
+}
+
+pub struct GeometryStage;
+impl Stage for GeometryStage {
+    const STAGE_TYPE: StageType = StageType::Geometry;
 }
 
 pub struct PixelStage;
 impl Stage for PixelStage {
-    const STAGE_TYPE: StageType = StageType::PixelStage;
+    const STAGE_TYPE: StageType = StageType::Pixel;
 }
 
 pub struct ShaderShared<S: Stage> {
@@ -410,6 +472,7 @@ impl<S: Stage> Drop for ShaderShared<S> {
 pub struct Shader<S: Stage>(Rc<ShaderShared<S>>);
 
 pub type VertexShader = Shader<VertexStage>;
+pub type GeometryShader = Shader<GeometryStage>;
 pub type PixelShader = Shader<PixelStage>;
 
 pub struct ShaderProgram {

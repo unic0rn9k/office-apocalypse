@@ -9,8 +9,6 @@ use std::path::*;
 use byteorder::*;
 use glam::*;
 
-use crate::scene::*;
-
 type VoxEndian = LittleEndian;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -30,19 +28,19 @@ impl std::fmt::Debug for VoxChunk {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct VoxModel {
-    transform: Mat4,
-    size: (usize, usize, usize),
-    positions: Vec<[u8; 4]>,
+pub struct VoxModel {
+    pub transform: Mat4,
+    pub size: (usize, usize, usize),
+    pub positions: Vec<(Vec3, usize)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-struct VoxMaterial {
-    diffuse: [u8; 4],
-    roughness: f32,
-    transparency: f32,
-    specular: Option<f32>,
-    ior: Option<f32>,
+pub struct VoxMaterial {
+    pub diffuse: [u8; 4],
+    pub roughness: f32,
+    pub transparency: f32,
+    pub specular: Option<f32>,
+    pub ior: Option<f32>,
 }
 
 fn parse_header(input: &mut impl ReadBytesExt) -> ([u8; 4], i32) {
@@ -103,9 +101,11 @@ fn parse_model(size: &VoxChunk, positions: &VoxChunk) -> VoxModel {
         let n = content.read_u32::<VoxEndian>().unwrap();
         let mut buf: Vec<u8> = vec![0; n as usize * std::mem::size_of::<u8>() * 4];
         content.read_exact(buf.as_mut_slice()).unwrap();
-        Vec::from(buf.as_chunks::<4>().0)
-    };
 
+        buf.array_chunks::<4>()
+            .map(|&[x, y, z, i]| (Vec3::new(x as _, y as _, z as _), i as _))
+            .collect()
+    };
     VoxModel {
         transform: Mat4::IDENTITY,
         size,
@@ -198,7 +198,7 @@ fn parse_dict(input: &mut impl ReadBytesExt) -> Vec<(String, String)> {
     dict
 }
 
-pub fn parse(input: &mut impl ReadBytesExt) -> Vec<Chunk> {
+pub fn parse(input: &mut impl ReadBytesExt) -> (Vec<VoxModel>, Box<[VoxMaterial; 256]>) {
     let (signature, version) = parse_header(input);
     assert_eq!((&signature, version), (b"VOX ", 150));
 
@@ -208,10 +208,10 @@ pub fn parse(input: &mut impl ReadBytesExt) -> Vec<Chunk> {
     let models = parse_models(&main.chunks);
     let materials = parse_materials(&main.chunks);
 
-    Vec::default()
+    (models, materials)
 }
 
-pub fn open(path: impl AsRef<Path>) -> Vec<Chunk> {
+pub fn open(path: impl AsRef<Path>) -> (Vec<VoxModel>, Box<[VoxMaterial; 256]>) {
     let mut file = File::open(path).unwrap();
     parse(&mut file)
 }

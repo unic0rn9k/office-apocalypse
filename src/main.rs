@@ -1,6 +1,7 @@
 #![feature(iter_array_chunks)]
 #![feature(let_chains)]
 #![feature(slice_as_chunks)]
+#![feature(array_chunks)]
 
 use glam::*;
 use sdl2::event::*;
@@ -47,7 +48,8 @@ fn main() -> Result<(), String> {
 
     let mut renderer = Renderer::new(&window, true);
 
-    let mut scene = Scene::new(Camera::new(Vec3::new(0.0, 0.0, -2.0), ASPECT_RATIO));
+    let camera = Camera::new(Vec3::new(0.0, 0.0, -2.0), ASPECT_RATIO);
+    let mut scene = Scene::open("./assets/gun.vox", camera);
 
     let mut event_pump = sdl.event_pump()?;
     'running: loop {
