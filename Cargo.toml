@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+byteorder = "1.4.3"
 gl = "0.14.0"
+glam = "0.22.0"
 sdl2 = { version = "0.35.2", features = ["bundled"] }

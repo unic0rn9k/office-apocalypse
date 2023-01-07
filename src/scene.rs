@@ -1,0 +1,118 @@
+use std::mem::MaybeUninit;
+use std::path::Path;
+
+use glam::*;
+
+use crate::vox;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MaterialId(pub usize);
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Material {
+    diffuse: [u8; 4],
+}
+
+/// A chunk is a cube with consisting of `x` by `y` by `z` voxels.
+#[derive(Debug, Clone)]
+pub struct Chunk {
+    pub transform: Mat4,
+    pub positions: Vec<(Vec3, MaterialId)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Entity {
+    pub transform: Mat4,
+    pub model: Option<Chunk>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Scene {
+    pub camera: Camera,
+    pub terrain: Vec<Chunk>,
+    pub entities: Vec<Entity>,
+    materials: Box<[Material; 256]>,
+}
+
+impl Scene {
+    pub fn new(camera: Camera) -> Self {
+        Self {
+            camera,
+            terrain: Vec::default(),
+            entities: Vec::default(),
+            materials: Box::new([Material::default(); 256]),
+        }
+    }
+
+    pub fn open(path: impl AsRef<Path>, camera: Camera) -> Self {
+        let (models, materials) = vox::open(path);
+
+        let terrain = models
+            .into_iter()
+            .map(|m| Chunk {
+                transform: m.transform,
+                positions: m
+                    .positions
+                    .into_iter()
+                    .map(|(m, i)| (m, MaterialId(i)))
+                    .collect(),
+            })
+            .collect();
+
+        Self {
+            camera,
+            terrain,
+            entities: Vec::default(),
+            materials: Box::new([Material::default(); 256]),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Camera {
+    position: Vec3,
+    direction: Vec3,
+    view: Mat4,
+    projection: Mat4,
+}
+
+impl Camera {
+    const FOV: f32 = std::f32::consts::FRAC_PI_2;
+
+    pub fn new(position: Vec3, aspect_ratio: f32) -> Self {
+        let direction = Vec3::new(0.0, 0.0, 1.0);
+
+        Self {
+            position,
+            direction,
+            view: Mat4::look_at_rh(position, position + direction, Vec3::new(0.0, 1.0, 0.0)),
+            projection: Mat4::perspective_rh_gl(Self::FOV, aspect_ratio, 0.1, 100.0),
+        }
+    }
+
+    pub fn view(&self) -> &Mat4 {
+        &self.view
+    }
+
+    pub fn projection(&self) -> &Mat4 {
+        &self.projection
+    }
+
+    pub fn view_projection(&self) -> Mat4 {
+        self.projection * self.view
+    }
+
+    pub fn translate(&mut self, by: Vec3) {
+        self.position += by * Vec3::new(-1.0, 1.0, -1.0);
+
+        self.view = Mat4::look_at_rh(
+            self.position,
+            self.position + self.direction,
+            Vec3::new(0.0, 1.0, 0.0),
+        );
+    }
+
+    pub fn resize(&mut self, width: f32, height: f32) {
+        self.projection = Mat4::perspective_rh_gl(Self::FOV, width / height, 0.1, 100.0);
+    }
+}
