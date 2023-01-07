@@ -123,12 +123,12 @@ impl<'a> Device<'a> {
         W.then(|| flags |= gl::MAP_WRITE_BIT);
 
         let (capacity, data, len) = match b {
-            BufferInit::Data(data) => (data.len(), data.as_ptr() as *const _, data.len()),
+            BufferInit::Data(data) => (data.len(), data.as_ptr(), data.len()),
             BufferInit::Capacity(capacity) => (capacity, std::ptr::null(), 0),
         };
 
         let size = (std::mem::size_of::<T>() * capacity) as isize;
-        unsafe { gl!(gl::NamedBufferStorage(id, size, data, flags)) }.unwrap();
+        unsafe { gl!(gl::NamedBufferStorage(id, size, data as *const _, flags)) }.unwrap();
 
         Buffer {
             id,

@@ -100,7 +100,6 @@ impl Renderer<'_> {
                 .map(|&(position, _)| position)
                 .collect();
 
-            // let offsets = [Vec3::new(0.0, 0.0, 0.0), Vec3::new(4.0, 0.0, 0.0)];
             let offset_buffer: Buffer<_, false, false> =
                 device.new_buffer(BufferInit::Data(&offsets));
 
@@ -129,10 +128,10 @@ impl Renderer<'_> {
 
                 gl!(gl::VertexArrayAttribFormat(
                     vao,
-                    0,
+                    1,
                     3,
                     gl::FLOAT,
-                    gl::TRUE,
+                    gl::FALSE,
                     0
                 ))
                 .unwrap();
