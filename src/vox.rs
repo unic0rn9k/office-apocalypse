@@ -31,17 +31,21 @@ impl std::fmt::Debug for VoxChunk {
 pub struct VoxModel {
     pub transform: Mat4,
     pub size: (usize, usize, usize),
-    pub positions: Vec<(Vec3, usize)>,
+    pub positions: Vec<(Vec3, VoxMaterialId)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VoxMaterial {
-    pub diffuse: [u8; 4],
+    pub albedo: [u8; 4],
     pub roughness: f32,
+    pub metalness: f32,
     pub transparency: f32,
     pub specular: Option<f32>,
     pub ior: Option<f32>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VoxMaterialId(pub usize);
 
 fn parse_header(input: &mut impl ReadBytesExt) -> ([u8; 4], i32) {
     let signature = {
@@ -103,7 +107,7 @@ fn parse_model(size: &VoxChunk, positions: &VoxChunk) -> VoxModel {
         content.read_exact(buf.as_mut_slice()).unwrap();
 
         buf.array_chunks::<4>()
-            .map(|&[x, y, z, i]| (Vec3::new(x as _, y as _, z as _), i as _))
+            .map(|&[x, y, z, i]| (Vec3::new(x as _, y as _, z as _), VoxMaterialId(i as _)))
             .collect()
     };
     VoxModel {
@@ -163,8 +167,9 @@ fn parse_materials(chunks: &[VoxChunk]) -> Box<[VoxMaterial; 256]> {
         }
 
         let material = VoxMaterial {
-            diffuse: palette[id - 1],
+            albedo: palette[id - 1],
             roughness,
+            metalness: 0.0,
             transparency,
             specular,
             ior,

@@ -4,11 +4,11 @@ use sdl2::video::*;
 use crate::rhi::*;
 use crate::scene::*;
 
-#[derive(Default)]
 pub struct Cache {
-    vertex_buffer: Option<Buffer<Vec3, false, false>>,
-    index_buffer: Option<Buffer<u32, false, false>>,
-    matrix_buffer: Option<Buffer<Mat4, false, true>>,
+    vertices: Buffer<Vec3>,
+    indices: Buffer<u32>,
+    matrices: Buffer<Mat4, false, true>,
+    materials: Option<Buffer<Material>>,
     buffers: Vec<Buffer<Vec3, false, true>>,
 }
 
@@ -61,110 +61,163 @@ impl Renderer<'_> {
         let pixel_shader = device.new_shader(PixelStage, Self::PIXEL_SHADER);
         let shaders = device.new_shader_program(&vertex_shader, &pixel_shader);
 
+        let vertices = device.new_buffer(BufferInit::Data(&Self::VERTICES));
+        let indices = device.new_buffer(BufferInit::Data(&Self::INDICES));
+        let matrices = device.new_buffer(BufferInit::Capacity(2));
+
         Self {
             _instance,
             device,
             swapchain,
             shaders,
-            cache: Cache::default(),
+            cache: Cache {
+                vertices,
+                indices,
+                matrices,
+                materials: None,
+                buffers: Vec::default(),
+            },
         }
     }
 
     /// Renders a single frame
     pub fn run(&mut self, scene: &Scene) {
+        unsafe { gl!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT)).unwrap() };
+
         let Self { device, cache, .. } = self;
 
-        let vertex_buffer = match cache.vertex_buffer.take() {
-            Some(buffer) => buffer,
-            _ => device.new_buffer(BufferInit::Data(&Self::VERTICES)),
-        };
+        // TODO: Make pretty :)
+        if cache.materials.is_none() {
+            cache.materials = Some(device.new_buffer(BufferInit::Data(scene.materials())));
+        }
 
-        let index_buffer = match cache.index_buffer.take() {
-            Some(buffer) => buffer,
-            _ => device.new_buffer(BufferInit::Data(&Self::INDICES)),
-        };
-
-        let mut matrix_buffer: Buffer<_, false, true> = match cache.matrix_buffer.take() {
-            Some(buffer) => buffer,
-            _ => device.new_buffer(BufferInit::Capacity(std::mem::size_of::<Mat4>() * 2)),
-        };
-
-        unsafe { gl!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT)).unwrap() };
-        for chunk in &scene.terrain {
-            let mvp = scene.camera.view_projection() * chunk.transform;
-            matrix_buffer.map_write().write(&[mvp]);
-
-            let offsets: Vec<_> = chunk
-                .positions
-                .iter()
-                .map(|&(position, _)| position)
-                .collect();
-
-            let offset_buffer: Buffer<_, false, false> =
-                device.new_buffer(BufferInit::Data(&offsets));
-
-            unsafe {
-                let mut vao = 0;
-                gl!(gl::CreateVertexArrays(1, &mut vao)).unwrap();
-                gl!(gl::VertexArrayVertexBuffer(vao, 0, vertex_buffer.id, 0, 12)).unwrap();
-                gl!(gl::VertexArrayVertexBuffer(vao, 1, offset_buffer.id, 0, 12)).unwrap();
-                gl!(gl::VertexArrayElementBuffer(vao, index_buffer.id)).unwrap();
-
-                gl!(gl::EnableVertexArrayAttrib(vao, 0)).unwrap();
-
-                gl!(gl::VertexArrayAttribFormat(
-                    vao,
-                    0,
-                    3,
-                    gl::FLOAT,
-                    gl::FALSE,
-                    0
-                ))
-                .unwrap();
-
-                gl!(gl::VertexArrayAttribBinding(vao, 0, 0)).unwrap();
-
-                gl!(gl::EnableVertexArrayAttrib(vao, 1)).unwrap();
-
-                gl!(gl::VertexArrayAttribFormat(
-                    vao,
-                    1,
-                    3,
-                    gl::FLOAT,
-                    gl::FALSE,
-                    0
-                ))
-                .unwrap();
-
-                gl!(gl::VertexArrayAttribBinding(vao, 1, 1)).unwrap();
-                gl!(gl::VertexArrayBindingDivisor(vao, 1, 1)).unwrap();
-
-                gl!(gl::UseProgram(self.shaders.id)).unwrap();
-                gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 0, matrix_buffer.id)).unwrap();
-
-                gl!(gl::BindVertexArray(vao)).unwrap();
-
-                gl!(gl::DrawElementsInstanced(
-                    gl::TRIANGLES,
-                    Self::INDICES.len() as _,
-                    gl::UNSIGNED_INT,
-                    std::ptr::null(),
-                    offset_buffer.len() as _,
-                ))
-                .unwrap();
-
-                gl!(gl::DeleteVertexArrays(1, &vao)).unwrap();
-            }
+        let view_projection = scene.camera.view_projection();
+        for chunk in scene.terrain() {
+            self.render_chunk(view_projection, chunk)
         }
 
         self.swapchain.present();
-
-        cache.vertex_buffer = Some(vertex_buffer);
-        cache.index_buffer = Some(index_buffer);
-        cache.matrix_buffer = Some(matrix_buffer);
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         unsafe { gl!(gl::Viewport(0, 0, width as _, height as _)) }.unwrap();
+    }
+
+    fn render_chunk(&mut self, view_projection: Mat4, chunk: &Chunk) {
+        let Self { device, cache, .. } = self;
+        let Cache { matrices, .. } = cache;
+
+        let materials = cache
+            .materials
+            .as_ref()
+            .expect("Materials haven't been uploaded to the GPU");
+
+        let mvp = view_projection * chunk.transform;
+        matrices.map_write().write(&[chunk.transform, mvp]);
+
+        let offsets: Vec<_> = chunk.positions.iter().map(|(offset, _)| *offset).collect();
+        let offsets: Buffer<_> = device.new_buffer(BufferInit::Data(&offsets));
+
+        let material_ids: Vec<_> = chunk.positions.iter().map(|(_, id)| id.0 as u32).collect();
+        let material_ids: Buffer<_, false> = device.new_buffer(BufferInit::Data(&material_ids));
+
+        assert_eq!(offsets.len(), material_ids.len());
+
+        unsafe {
+            let mut vao = 0;
+            gl!(gl::CreateVertexArrays(1, &mut vao)).unwrap();
+
+            gl!(gl::VertexArrayVertexBuffers(
+                vao,
+                0,
+                3,
+                [cache.vertices.id, offsets.id, material_ids.id].as_ptr(),
+                [0, 0, 0].as_ptr(),
+                [12, 12, 4].as_ptr()
+            ))
+            .unwrap();
+
+            gl!(gl::VertexArrayElementBuffer(vao, cache.indices.id)).unwrap();
+
+            gl!(gl::EnableVertexArrayAttrib(vao, 0)).unwrap();
+            gl!(gl::EnableVertexArrayAttrib(vao, 1)).unwrap();
+            gl!(gl::EnableVertexArrayAttrib(vao, 2)).unwrap();
+
+            gl!(gl::VertexArrayAttribFormat(
+                vao,
+                0,
+                3,
+                gl::FLOAT,
+                gl::FALSE,
+                0
+            ))
+            .unwrap();
+
+            gl!(gl::VertexArrayAttribFormat(
+                vao,
+                1,
+                3,
+                gl::FLOAT,
+                gl::FALSE,
+                0
+            ))
+            .unwrap();
+
+            gl!(gl::VertexArrayAttribIFormat(vao, 2, 1, gl::UNSIGNED_INT, 0)).unwrap();
+
+            gl!(gl::VertexArrayAttribBinding(vao, 0, 0)).unwrap();
+            gl!(gl::VertexArrayAttribBinding(vao, 1, 1)).unwrap();
+            gl!(gl::VertexArrayAttribBinding(vao, 2, 2)).unwrap();
+            gl!(gl::VertexArrayBindingDivisor(vao, 1, 1)).unwrap();
+            gl!(gl::VertexArrayBindingDivisor(vao, 2, 1)).unwrap();
+
+            gl!(gl::UseProgram(self.shaders.id)).unwrap();
+            gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 0, matrices.id)).unwrap();
+            gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 1, materials.id)).unwrap();
+
+            gl!(gl::BindVertexArray(vao)).unwrap();
+
+            gl!(gl::DrawElementsInstanced(
+                gl::TRIANGLES,
+                cache.indices.len() as _,
+                gl::UNSIGNED_INT,
+                std::ptr::null(),
+                offsets.len() as _
+            ))
+            .unwrap();
+
+            gl!(gl::DeleteVertexArrays(1, &vao)).unwrap();
+        }
+    }
+}
+
+unsafe impl BufferLayout for Material {
+    const LAYOUT: &'static [Format] = &[Format::Vec4, Format::F32, Format::F32];
+    const COPYABLE: bool = false;
+    const PADDING: usize = 8;
+
+    // OpenGL require that arrays are aligned to a multiple of 16.
+    // Since the material contains a total of 24 bytes, the next multiple is 32.
+    // Because of that we must add 8 empty bytes at the end of our material.
+    fn to_bytes(items: &[Self]) -> Vec<u8> {
+        // assert_eq!(std::mem::size_of::<Self>(), 24);
+
+        let mut bytes: Vec<u8> = Vec::with_capacity(items.len() * std::mem::size_of::<Self>());
+        for item in items {
+            let albedo = {
+                let [r, g, b, a] = item.albedo;
+                Vec4::new(r as _, g as _, b as _, a as _) / 255.0
+            };
+
+            for component in albedo.as_ref() {
+                bytes.extend_from_slice(&component.to_ne_bytes()) // 4 bytes * 4
+            }
+
+            bytes.extend_from_slice(&item.roughness.to_ne_bytes()); // 4 bytes
+            bytes.extend_from_slice(&item.metalness.to_ne_bytes()); // 4 bytes
+            bytes.extend_from_slice(&[0; 8]); // 8 bytes
+        }
+
+        bytes
     }
 }

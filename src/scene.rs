@@ -3,14 +3,17 @@ use std::path::Path;
 
 use glam::*;
 
-use crate::vox;
+use crate::vox::{self, VoxMaterial};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
 pub struct MaterialId(pub usize);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Material {
-    diffuse: [u8; 4],
+    pub albedo: [u8; 4],
+    pub roughness: f32,
+    pub metalness: f32,
 }
 
 /// A chunk is a cube with consisting of `x` by `y` by `z` voxels.
@@ -21,15 +24,25 @@ pub struct Chunk {
 }
 
 #[derive(Debug, Clone)]
-pub struct Entity {
-    pub transform: Mat4,
-    pub model: Option<Chunk>,
+pub struct Light {
+    transform: Mat4,
+}
+
+#[derive(Debug, Clone)]
+pub struct Object {
+    transform: Mat4,
+}
+
+#[derive(Debug, Clone)]
+pub enum Entity {
+    Light(Light),
+    Object(Object),
+    Terrain(Chunk),
 }
 
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub camera: Camera,
-    pub terrain: Vec<Chunk>,
     pub entities: Vec<Entity>,
     materials: Box<[Material; 256]>,
 }
@@ -38,7 +51,6 @@ impl Scene {
     pub fn new(camera: Camera) -> Self {
         Self {
             camera,
-            terrain: Vec::default(),
             entities: Vec::default(),
             materials: Box::new([Material::default(); 256]),
         }
@@ -47,24 +59,44 @@ impl Scene {
     pub fn open(path: impl AsRef<Path>, camera: Camera) -> Self {
         let (models, materials) = vox::open(path);
 
-        let terrain = models
-            .into_iter()
-            .map(|m| Chunk {
-                transform: m.transform,
-                positions: m
+        let rotation_x = Mat4::from_rotation_x(std::f32::consts::PI / 2.0);
+        let rotation_y = Mat4::from_rotation_y(std::f32::consts::PI);
+
+        let mut terrain = Vec::with_capacity(models.len());
+        for model in models {
+            let chunk = Chunk {
+                transform: rotation_x * rotation_y * model.transform,
+                positions: model
                     .positions
                     .into_iter()
-                    .map(|(m, i)| (m, MaterialId(i)))
+                    .map(|(p, id)| (p, MaterialId(id.0 - 1)))
                     .collect(),
-            })
-            .collect();
+            };
+            terrain.push(Entity::Terrain(chunk));
+        }
+
+        let materials = Box::new(materials.map(|vox| Material {
+            albedo: vox.albedo,
+            roughness: vox.roughness,
+            metalness: vox.metalness,
+        }));
 
         Self {
             camera,
-            terrain,
-            entities: Vec::default(),
-            materials: Box::new([Material::default(); 256]),
+            entities: terrain,
+            materials,
         }
+    }
+
+    pub fn terrain(&self) -> impl Iterator<Item = &Chunk> {
+        self.entities.iter().filter_map(|entity| match entity {
+            Entity::Terrain(chunk) => Some(chunk),
+            _ => None,
+        })
+    }
+
+    pub fn materials(&self) -> &[Material] {
+        self.materials.as_slice()
     }
 }
 
