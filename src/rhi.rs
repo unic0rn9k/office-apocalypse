@@ -122,13 +122,38 @@ impl<'a> Device<'a> {
         let mut flags = if R { gl::MAP_READ_BIT } else { 0 };
         W.then(|| flags |= gl::MAP_WRITE_BIT);
 
-        let (capacity, data, len) = match b {
-            BufferInit::Data(data) => (data.len(), data.as_ptr(), data.len()),
-            BufferInit::Capacity(capacity) => (capacity, std::ptr::null(), 0),
+        let bytes;
+        let (size, capacity, data, len) = match b {
+            BufferInit::Data(data) => {
+                if T::COPYABLE && T::PADDING == 0 {
+                    (
+                        data.len() * std::mem::size_of::<T>(),
+                        data.len(),
+                        data.as_ptr() as *const _,
+                        data.len(),
+                    )
+                } else {
+                    bytes = T::to_bytes(data);
+                    (bytes.len(), data.len(), bytes.as_ptr(), data.len())
+                }
+            }
+            BufferInit::Capacity(capacity) => (
+                capacity * (std::mem::size_of::<T>() + T::PADDING),
+                capacity,
+                std::ptr::null(),
+                0,
+            ),
         };
 
-        let size = (std::mem::size_of::<T>() * capacity) as isize;
-        unsafe { gl!(gl::NamedBufferStorage(id, size, data as *const _, flags)) }.unwrap();
+        unsafe {
+            gl!(gl::NamedBufferStorage(
+                id,
+                size as isize,
+                data as *const _,
+                flags
+            ))
+        }
+        .unwrap();
 
         Buffer {
             id,
@@ -375,7 +400,7 @@ pub enum BufferInit<'a, T: BufferLayout> {
     Capacity(usize),
 }
 
-pub struct Buffer<T: BufferLayout, const R: bool, const W: bool> {
+pub struct Buffer<T: BufferLayout, const R: bool = false, const W: bool = false> {
     pub id: u32,
     capacity: usize,
     len: usize,
@@ -413,6 +438,25 @@ impl<T: BufferLayout, const R: bool> Buffer<T, R, true> {
 
 pub struct MapRead<'a, T: BufferLayout, const W: bool>(&'a Buffer<T, true, W>);
 
+impl<'a, T: BufferLayout + Default + Clone, const W: bool> MapRead<'a, T, W> {
+    pub fn read(&self) -> Vec<T> {
+        let mapped = unsafe { gl!(gl::MapNamedBuffer(self.0.id, gl::READ_ONLY)) }.unwrap();
+        if T::COPYABLE && T::PADDING == 0 {
+            let mut storage = vec![T::default(); self.0.len()];
+            unsafe { std::ptr::copy(mapped as *const _, storage.as_mut_ptr(), storage.len()) };
+            storage
+        } else {
+            todo!()
+        }
+    }
+}
+
+impl<'a, T: BufferLayout, const W: bool> Drop for MapRead<'a, T, W> {
+    fn drop(&mut self) {
+        unsafe { gl!(gl::UnmapNamedBuffer(self.0.id)) }.unwrap();
+    }
+}
+
 pub struct MapWrite<'a, T: BufferLayout, const R: bool>(&'a mut Buffer<T, R, true>);
 
 impl<'a, T: BufferLayout, const R: bool> MapWrite<'a, T, R> {
@@ -425,10 +469,15 @@ impl<'a, T: BufferLayout, const R: bool> MapWrite<'a, T, R> {
             let count = items.len() * std::mem::size_of::<T>();
             unsafe { std::ptr::copy(items.as_ptr() as *const _, mapped, count) };
         } else {
-            todo!()
+            let bytes = T::to_bytes(items);
+            unsafe { std::ptr::copy(bytes.as_ptr() as *const _, mapped, bytes.len()) };
         }
+    }
+}
 
-        unsafe { gl!(gl::UnmapNamedBuffer(buffer.id)) }.unwrap();
+impl<'a, T: BufferLayout, const R: bool> Drop for MapWrite<'a, T, R> {
+    fn drop(&mut self) {
+        unsafe { gl!(gl::UnmapNamedBuffer(self.0.id)) }.unwrap();
     }
 }
 

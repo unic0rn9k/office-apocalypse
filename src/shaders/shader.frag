@@ -1,9 +1,19 @@
 #version 460 core
 
-// layout(location = 0) in flat uint material;
+layout(location = 0) in flat uint materialId;
+
+struct Material {
+    vec4 albedo;
+    float roughness;
+    float metalness;
+};
+
+layout(std140, binding = 1) uniform Materials {
+    Material materials[256];
+};
 
 out vec4 color;
 
 void main() {
-    color = vec4(1.0, 1.0, 1.0, 1.0);
+    color = materials[materialId].albedo;
 }
