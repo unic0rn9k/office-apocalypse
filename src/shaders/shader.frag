@@ -1,6 +1,6 @@
 #version 460 core
 
-layout(location = 0) in flat uint materialId;
+in flat uint materialId;
 
 struct Material {
     vec4 albedo;
