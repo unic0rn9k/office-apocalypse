@@ -148,3 +148,64 @@ impl Camera {
         self.projection = Mat4::perspective_rh_gl(Self::FOV, width / height, 0.1, 100.0);
     }
 }
+
+pub struct SceneNodeId(usize);
+
+pub struct SceneNode {
+    parent: SceneNodeId,
+    entity: Entity,
+}
+
+impl SceneNode {
+    fn new(entity: Entity, parent: &SceneNodeId) -> Self {
+        Self {
+            parent: SceneNodeId(parent.0),
+            entity,
+        }
+    }
+
+    fn evaluate(&self, parent: &Entity) -> Entity {
+        let parent_trans = match parent {
+            Entity::Object(a) => a.transform,
+            Entity::Terrain(a) => a.transform,
+            _ => return self.entity.clone(),
+        };
+
+        let mut ret = self.entity.clone();
+        // TODO: Figure out if multiplication order is correct.
+        match &mut ret {
+            Entity::Object(a) => a.transform = parent_trans * a.transform,
+            Entity::Terrain(a) => a.transform = parent_trans * a.transform,
+            Entity::Light(a) => a.transform = parent_trans * a.transform,
+        }
+        ret
+    }
+}
+
+// Det smartest at holde styr på parents, hvis vi bruger metal morphosis,
+// ellers er det smartere at holde styr på children :/
+pub struct SceneGraph {
+    nodes: Vec<Option<SceneNode>>,
+}
+
+impl SceneGraph {
+    pub fn new() -> Self {
+        Self { nodes: vec![None] }
+    }
+    pub fn insert_entity(&mut self, entity: Option<Entity>, parent: &SceneNodeId) -> SceneNodeId {
+        self.nodes
+            .push(entity.map(|entity| SceneNode::new(entity, parent)));
+        SceneNodeId(self.nodes.len() - 1)
+    }
+
+    pub fn entity(&self, id: &SceneNodeId) -> Option<&Entity> {
+        self.nodes[id.0].as_ref().map(|node| &node.entity)
+    }
+    pub fn entity_mut(&mut self, id: &SceneNodeId) -> Option<&mut Entity> {
+        self.nodes[id.0].as_mut().map(|node| &mut node.entity)
+    }
+
+    pub fn evaluate(&self) -> Vec<Entity> {
+        todo!()
+    }
+}
