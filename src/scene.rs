@@ -148,3 +148,32 @@ impl Camera {
         self.projection = Mat4::perspective_rh_gl(Self::FOV, width / height, 0.1, 100.0);
     }
 }
+
+struct SceneNodeId(usize);
+
+struct SceneNode {
+    parent: usize,
+    entity: Entity,
+}
+
+struct SceneGraph {
+    nodes: Vec<SceneNode>,
+}
+
+impl SceneGraph {
+    fn new() -> Self {
+        todo!()
+    }
+    fn insert_entity(&mut self, entity: Entity, parent: &SceneNodeId) -> SceneNodeId {
+        todo!()
+    }
+    fn evaluate(&self) -> Vec<Entity> {
+        todo!()
+    }
+    fn entity(&self, id: &SceneNodeId) -> &Entity {
+        todo!()
+    }
+    fn entity_mut(&mut self, id: &SceneNodeId) -> &mut Entity {
+        todo!()
+    }
+}
