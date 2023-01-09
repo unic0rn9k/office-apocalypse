@@ -149,31 +149,63 @@ impl Camera {
     }
 }
 
-struct SceneNodeId(usize);
+pub struct SceneNodeId(usize);
 
-struct SceneNode {
-    parent: usize,
+pub struct SceneNode {
+    parent: SceneNodeId,
     entity: Entity,
 }
 
-struct SceneGraph {
-    nodes: Vec<SceneNode>,
+impl SceneNode {
+    fn new(entity: Entity, parent: &SceneNodeId) -> Self {
+        Self {
+            parent: SceneNodeId(parent.0),
+            entity,
+        }
+    }
+
+    fn evaluate(&self, parent: &Entity) -> Entity {
+        let parent_trans = match parent {
+            Entity::Object(a) => a.transform,
+            Entity::Terrain(a) => a.transform,
+            _ => return self.entity.clone(),
+        };
+
+        let mut ret = self.entity.clone();
+        // TODO: Figure out if multiplication order is correct.
+        match &mut ret {
+            Entity::Object(a) => a.transform = parent_trans * a.transform,
+            Entity::Terrain(a) => a.transform = parent_trans * a.transform,
+            Entity::Light(a) => a.transform = parent_trans * a.transform,
+        }
+        ret
+    }
+}
+
+// Det smartest at holde styr på parents, hvis vi bruger metal morphosis,
+// ellers er det smartere at holde styr på children :/
+pub struct SceneGraph {
+    nodes: Vec<Option<SceneNode>>,
 }
 
 impl SceneGraph {
-    fn new() -> Self {
-        todo!()
+    pub fn new() -> Self {
+        Self { nodes: vec![None] }
     }
-    fn insert_entity(&mut self, entity: Entity, parent: &SceneNodeId) -> SceneNodeId {
-        todo!()
+    pub fn insert_entity(&mut self, entity: Option<Entity>, parent: &SceneNodeId) -> SceneNodeId {
+        self.nodes
+            .push(entity.map(|entity| SceneNode::new(entity, parent)));
+        SceneNodeId(self.nodes.len() - 1)
     }
-    fn evaluate(&self) -> Vec<Entity> {
-        todo!()
+
+    pub fn entity(&self, id: &SceneNodeId) -> Option<&Entity> {
+        self.nodes[id.0].as_ref().map(|node| &node.entity)
     }
-    fn entity(&self, id: &SceneNodeId) -> &Entity {
-        todo!()
+    pub fn entity_mut(&mut self, id: &SceneNodeId) -> Option<&mut Entity> {
+        self.nodes[id.0].as_mut().map(|node| &mut node.entity)
     }
-    fn entity_mut(&mut self, id: &SceneNodeId) -> &mut Entity {
+
+    pub fn evaluate(&self) -> Vec<Entity> {
         todo!()
     }
 }
