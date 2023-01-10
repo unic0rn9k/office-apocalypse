@@ -40,6 +40,24 @@ pub enum Entity {
     Terrain(Chunk),
 }
 
+impl Entity {
+    fn transform(&self) -> Option<&Mat4> {
+        match self {
+            Entity::Light(l) => Some(&l.transform),
+            Entity::Object(o) => Some(&o.transform),
+            Entity::Terrain(t) => Some(&t.transform),
+        }
+    }
+
+    fn transform_mut(&mut self) -> Option<&mut Mat4> {
+        match self {
+            Entity::Light(l) => Some(&mut l.transform),
+            Entity::Object(o) => Some(&mut o.transform),
+            Entity::Terrain(t) => Some(&mut t.transform),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub camera: Camera,
@@ -149,41 +167,50 @@ impl Camera {
     }
 }
 
-pub struct SceneNodeId(usize);
+pub struct SceneNodeID(usize);
 
 pub struct SceneNode {
-    parent: SceneNodeId,
-    entity: Entity,
+    parent: SceneNodeID,
+    base_entity: Entity,
+    mutated_entity: Entity,
+}
+
+impl Clone for SceneNode {
+    fn clone(&self) -> Self {
+        Self {
+            parent: SceneNodeID(self.parent.0),
+            base_entity: self.base_entity.clone(),
+            mutated_entity: self.mutated_entity.clone(),
+        }
+    }
 }
 
 impl SceneNode {
-    fn new(entity: Entity, parent: &SceneNodeId) -> Self {
+    fn new(entity: Entity, parent: &SceneNodeID) -> Self {
         Self {
-            parent: SceneNodeId(parent.0),
-            entity,
+            parent: SceneNodeID(parent.0),
+            base_entity: entity.clone(),
+            mutated_entity: entity,
         }
     }
 
-    fn evaluate(&self, parent: &Entity) -> Entity {
-        let parent_trans = match parent {
-            Entity::Object(a) => a.transform,
-            Entity::Terrain(a) => a.transform,
-            _ => return self.entity.clone(),
-        };
-
-        let mut ret = self.entity.clone();
-        // TODO: Figure out if multiplication order is correct.
-        match &mut ret {
-            Entity::Object(a) => a.transform = parent_trans * a.transform,
-            Entity::Terrain(a) => a.transform = parent_trans * a.transform,
-            Entity::Light(a) => a.transform = parent_trans * a.transform,
+    fn evaluate(&mut self, parent: &Option<SceneNode>) {
+        if let Some(trans) = self.base_entity.transform() {
+            let new_trans =
+                if let Some(p_trans) = parent.as_ref().and_then(|p| p.mutated_entity.transform()) {
+                    *p_trans * *trans
+                } else {
+                    *trans
+                };
+            *self
+                .mutated_entity
+                .transform_mut()
+                .expect("base_entity and mutated entity differ in type") = new_trans
         }
-        ret
     }
 }
 
-// Det smartest at holde styr på parents, hvis vi bruger metal morphosis,
-// ellers er det smartere at holde styr på children :/
+// Actually a scene tree, because each node only has one parent.
 pub struct SceneGraph {
     nodes: Vec<Option<SceneNode>>,
 }
@@ -192,20 +219,28 @@ impl SceneGraph {
     pub fn new() -> Self {
         Self { nodes: vec![None] }
     }
-    pub fn insert_entity(&mut self, entity: Option<Entity>, parent: &SceneNodeId) -> SceneNodeId {
-        self.nodes
-            .push(entity.map(|entity| SceneNode::new(entity, parent)));
-        SceneNodeId(self.nodes.len() - 1)
+    pub fn insert_entity(&mut self, entity: Entity, parent: &SceneNodeID) -> SceneNodeID {
+        self.nodes.push(Some(SceneNode::new(entity, parent)));
+        SceneNodeID(self.nodes.len() - 1)
     }
 
-    pub fn entity(&self, id: &SceneNodeId) -> Option<&Entity> {
-        self.nodes[id.0].as_ref().map(|node| &node.entity)
+    pub fn entity(&self, id: &SceneNodeID) -> Option<&Entity> {
+        self.nodes[id.0].as_ref().map(|s| &s.base_entity)
     }
-    pub fn entity_mut(&mut self, id: &SceneNodeId) -> Option<&mut Entity> {
-        self.nodes[id.0].as_mut().map(|node| &mut node.entity)
+    pub fn entity_mut(&mut self, id: &SceneNodeID) -> Option<&mut Entity> {
+        self.nodes[id.0].as_mut().map(|s| &mut s.base_entity)
     }
 
-    pub fn evaluate(&self) -> Vec<Entity> {
-        todo!()
+    pub fn evaluate_all(&mut self) {
+        for n in 0..self.nodes.len() {
+            let parent = if let Some(node) = &self.nodes[n] {
+                self.nodes[node.parent.0].clone()
+            } else {
+                continue;
+            };
+            if let Some(node) = &mut self.nodes[n] {
+                node.evaluate(&parent);
+            }
+        }
     }
 }
