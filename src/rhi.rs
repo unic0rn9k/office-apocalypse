@@ -174,7 +174,7 @@ impl<'a> Device<'a> {
         let id = unsafe { gl!(gl::CreateShader(stage)) }.unwrap();
 
         let string = &(src.as_ptr() as *const _);
-        unsafe { gl!(gl::ShaderSource(id, 1, string, src.len() as _)) }.unwrap();
+        unsafe { gl!(gl::ShaderSource(id, 1, string, [src.len() as _].as_ptr())) }.unwrap();
 
         unsafe { gl!(gl::CompileShader(id)) }.unwrap();
 
