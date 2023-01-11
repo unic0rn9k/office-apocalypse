@@ -5,6 +5,7 @@
 
 use glam::*;
 use sdl2::event::*;
+use sdl2::keyboard::Scancode;
 use sdl2::video::*;
 use sdl2::*;
 
@@ -46,7 +47,7 @@ fn main() -> Result<(), String> {
     let audio_subsystem = sdl.audio()?;
     let mut event_pump = sdl.event_pump()?;
 
-    let window = setup_window(&video_subsystem);
+    let mut window = setup_window(&video_subsystem);
     let mut renderer = Renderer::new(&window, true, false);
 
     let camera = Camera::new(Vec3::new(0.0, 0.0, -2.0), ASPECT_RATIO);
@@ -66,6 +67,21 @@ fn main() -> Result<(), String> {
                     WindowEvent::Close => break 'running,
                     _ => {}
                 },
+                Event::KeyDown { scancode, .. } if scancode == Some(Scancode::Escape) => {
+                    let fullscreen = match window.fullscreen_state() {
+                        FullscreenType::Off => {
+                            sdl.mouse().show_cursor(false);
+                            FullscreenType::Desktop
+                        }
+                        FullscreenType::Desktop => {
+                            sdl.mouse().show_cursor(true);
+                            FullscreenType::Off
+                        }
+                        _ => FullscreenType::Off,
+                    };
+
+                    window.set_fullscreen(fullscreen).unwrap();
+                }
                 Event::Quit { .. } => break 'running,
                 _ => {}
             }
