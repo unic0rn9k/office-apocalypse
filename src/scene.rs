@@ -58,6 +58,18 @@ impl Entity {
     }
 }
 
+macro_rules! impl_into_entity {
+    ($($entity: ident),*) => {
+        $(impl Into<Entity> for $entity{
+            fn into(self) -> Entity{
+                Entity::$entity(self)
+            }
+        })*
+    };
+}
+
+impl_into_entity!(Light, Object);
+
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub camera: Camera,
@@ -243,4 +255,29 @@ impl SceneGraph {
             }
         }
     }
+
+    pub fn root_node(&self) -> SceneNodeID {
+        SceneNodeID(0)
+    }
+
+    pub fn mutated_entity(&self, id: &SceneNodeID) -> Option<&Entity> {
+        self.nodes[id.0].as_ref().map(|s| &s.mutated_entity)
+    }
+}
+
+#[test]
+fn graph() {
+    let mut g = SceneGraph::new();
+    let root = g.root_node();
+
+    let transform = Mat4::from_cols_array_2d(&[[1., 2., 3., 4.]; 4]);
+
+    let a = g.insert_entity(Object { transform }.into(), &root);
+    let b = g.insert_entity(Object { transform }.into(), &a);
+    g.evaluate_all();
+
+    assert_eq!(
+        g.mutated_entity(&b).unwrap().transform().unwrap(),
+        &(transform * transform)
+    );
 }
