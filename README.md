@@ -35,3 +35,10 @@ Thought inspiration from stanley parable and severance would be a good idea. (go
 - [ ] Coffe machine
 - [ ] Sofa
 - [ ] Water dispenser
+
+- *Kitchen
+- [] kitchen drawer
+- [] sink
+- [] oven
+- [] island
+- [] gas
