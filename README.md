@@ -36,9 +36,13 @@ Thought inspiration from stanley parable and severance would be a good idea. (go
 - [ ] Sofa
 - [ ] Water dispenser
 
-- *Kitchen
+- *Kitchen*
 - [] kitchen drawer
 - [] sink
 - [] oven
 - [] island
 - [] gas
+
+- *Models*
+- Zombie
+- Crawling Zombie
