@@ -1,21 +1,21 @@
 use glam::{UVec3, Vec3Swizzles};
 
-use crate::scene::MaterialID;
+use crate::scene::MaterialId;
 
 pub enum SparseNode {
     Nothing(u32),
-    Voxel(MaterialID),
+    Voxel(MaterialId),
 }
 use SparseNode::*;
 
 impl SparseNode {
-    fn voxel(&self) -> &MaterialID {
+    fn voxel(&self) -> &MaterialId {
         match self {
             Nothing(_) => panic!("Called voxel on `SparseNode::Nothing`"),
             Voxel(v) => v,
         }
     }
-    fn voxel_mut(&mut self) -> &mut MaterialID {
+    fn voxel_mut(&mut self) -> &mut MaterialId {
         match self {
             Nothing(_) => panic!("Called voxel_mut on `SparseNode::Nothing`"),
             Voxel(v) => v,
@@ -110,14 +110,14 @@ impl SparseTensorChunk {
         self.nodes.len() - 1
     }
 
-    pub fn insert(&mut self, i: UVec3, vox: Option<MaterialID>) {
+    pub fn insert(&mut self, i: UVec3, vox: Option<MaterialId>) {
         todo!() // Cant do this, without making it a graph :/
     }
 
-    pub fn voxel(&self, i: UVec3) -> Option<&MaterialID> {
+    pub fn voxel(&self, i: UVec3) -> Option<&MaterialId> {
         self.idx(i).map(|i| self.nodes[i].voxel())
     }
-    pub fn voxel_mut(&mut self, i: UVec3) -> Option<&mut MaterialID> {
+    pub fn voxel_mut(&mut self, i: UVec3) -> Option<&mut MaterialId> {
         self.idx(i).map(|i| self.nodes[i].voxel_mut())
     }
 
@@ -125,7 +125,7 @@ impl SparseTensorChunk {
         Self { nodes: vec![], dim }
     }
 
-    pub fn from_model(model: Vec<(UVec3, MaterialID)>, size: UVec3) -> Self {
+    pub fn from_model(model: Vec<(UVec3, MaterialId)>, size: UVec3) -> Self {
         todo!()
     }
 }
