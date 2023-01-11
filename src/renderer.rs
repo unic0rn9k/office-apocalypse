@@ -7,8 +7,7 @@ use crate::rhi::*;
 use crate::scene::*;
 
 pub struct Cache {
-    vertices: Buffer<Vec3>,
-    indices: Buffer<u32>,
+    vertices: Buffer<Vertex>,
     matrices: Buffer<Mat4, false, true>,
     materials: Option<Buffer<Material>>,
     buffers: Vec<Buffer<Vec3, false, true>>,
@@ -27,15 +26,48 @@ impl Renderer<'_> {
     const PIXEL_SHADER: &'static str = include_str!("./shaders/shader.frag");
 
     #[rustfmt::skip]
-    const VERTICES: [Vec3; 8] = [
-        Vec3::new(-1.0, -1.0,  1.0),
-        Vec3::new( 1.0, -1.0,  1.0),
-        Vec3::new( 1.0,  1.0,  1.0),
-        Vec3::new(-1.0,  1.0,  1.0),
-        Vec3::new(-1.0, -1.0, -1.0),
-        Vec3::new( 1.0, -1.0, -1.0),
-        Vec3::new( 1.0,  1.0, -1.0),
-        Vec3::new(-1.0,  1.0, -1.0),
+    const VERTICES: [Vertex; 36] = [
+        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new( 0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new( 0.5,  0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new( 0.5,  0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+
+        Vertex(Vec3::new(-0.5, -0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new( 0.5, -0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new(-0.5,  0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new(-0.5, -0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+
+        Vertex(Vec3::new(-0.5,  0.5,  0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5,  0.5, -0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5, -0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5, -0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5,  0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5,  0.5,  0.5), Vec3::new(-1.0,  0.0,  0.0)),
+
+        Vertex(Vec3::new(0.5,  0.5,  0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5,  0.5, -0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5, -0.5, -0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5, -0.5, -0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5, -0.5,  0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5,  0.5,  0.5),  Vec3::new(1.0,  0.0,  0.0)),
+
+        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new( 0.5, -0.5, -0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new( 0.5, -0.5,  0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new( 0.5, -0.5,  0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5,  0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0, -1.0,  0.0)),
+
+        Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new( 0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new(-0.5,  0.5,  0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0))
     ];
 
     #[rustfmt::skip]
@@ -64,7 +96,7 @@ impl Renderer<'_> {
         let shaders = device.new_shader_program(&vertex_shader, &pixel_shader);
 
         let vertices = device.new_buffer(BufferInit::Data(&Self::VERTICES));
-        let indices = device.new_buffer(BufferInit::Data(&Self::INDICES));
+        // let indices = device.new_buffer(BufferInit::Data(&Self::INDICES));
         let matrices = device.new_buffer(BufferInit::Capacity(2));
 
         Self {
@@ -74,7 +106,6 @@ impl Renderer<'_> {
             shaders,
             cache: Cache {
                 vertices,
-                indices,
                 matrices,
                 materials: None,
                 buffers: Vec::default(),
@@ -83,7 +114,7 @@ impl Renderer<'_> {
     }
 
     /// Renders a single frame
-    pub fn run(&mut self, scene: &Scene) {
+    pub fn run(&mut self, scene: &mut Scene) {
         let Self { device, cache, .. } = self;
 
         unsafe { gl!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT)) }.unwrap();
@@ -127,26 +158,24 @@ impl Renderer<'_> {
 
         device.bind_vertex_buffer(BindProps {
             binding: 0,
-            attributes: &[0],
+            attributes: &[0, 1],
             buffer: &cache.vertices,
             instanced: false,
         });
 
         device.bind_vertex_buffer(BindProps {
             binding: 1,
-            attributes: &[1],
+            attributes: &[2],
             buffer: &offsets,
             instanced: true,
         });
 
         device.bind_vertex_buffer(BindProps {
             binding: 2,
-            attributes: &[2],
+            attributes: &[3],
             buffer: &material_ids,
             instanced: true,
         });
-
-        device.bind_index_buffer(&cache.indices);
 
         device.bind_shader_program(&self.shaders);
 
@@ -155,7 +184,7 @@ impl Renderer<'_> {
             gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 1, materials.id)).unwrap();
         }
 
-        device.draw_indexed_instanced(cache.indices.len(), offsets.len());
+        device.draw_instanced(cache.vertices.len(), offsets.len());
     }
 }
 
@@ -187,5 +216,24 @@ unsafe impl BufferLayout for Material {
         }
 
         bytes
+    }
+}
+
+unsafe impl BufferLayout for Vertex {
+    const LAYOUT: &'static [Format] = &[Format::Vec3, Format::Vec3];
+    const PADDING: &'static [usize] = &[0, 0];
+    const COPYABLE: bool = true;
+
+    fn to_bytes(_items: &[Self]) -> Vec<u8> {
+        unimplemented!()
+    }
+}
+
+#[repr(C)]
+struct Vertex(Vec3, Vec3);
+
+impl Vertex {
+    pub fn new(position: Vec3, normal: Vec3) -> Self {
+        Self(position, normal)
     }
 }

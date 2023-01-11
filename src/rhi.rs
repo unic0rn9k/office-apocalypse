@@ -243,7 +243,6 @@ impl<'a> Device<'a> {
 
         for (i, attrib) in props.attributes.iter().enumerate() {
             let format = &T::LAYOUT[i];
-            let relativeoffset = T::offset(i) as _;
             let attrib = *attrib as _;
             unsafe {
                 gl!(gl::EnableVertexArrayAttrib(*vao, attrib)).unwrap();
@@ -262,24 +261,12 @@ impl<'a> Device<'a> {
 
             if type_ == gl::UNSIGNED_INT {
                 unsafe {
-                    gl!(gl::VertexArrayAttribIFormat(
-                        *vao,
-                        attrib,
-                        size,
-                        type_,
-                        relativeoffset
-                    ))
-                    .unwrap();
+                    gl!(gl::VertexArrayAttribIFormat(*vao, attrib, size, type_, 0)).unwrap();
                 }
             } else {
                 unsafe {
                     gl!(gl::VertexArrayAttribFormat(
-                        *vao,
-                        attrib,
-                        size,
-                        type_,
-                        normalized,
-                        relativeoffset
+                        *vao, attrib, size, type_, normalized, 0
                     ))
                     .unwrap();
                 }
@@ -322,6 +309,22 @@ impl<'a> Device<'a> {
             ))
         }
         .unwrap();
+    }
+
+    pub fn draw_instanced(&self, vertices: usize, instances: usize) {
+        let device = self.0.borrow();
+
+        unsafe {
+            gl!(gl::BindVertexArray(device.vao)).unwrap();
+
+            gl!(gl::DrawArraysInstanced(
+                gl::TRIANGLES,
+                0,
+                vertices as _,
+                instances as _
+            ))
+            .unwrap()
+        }
     }
 
     pub fn draw_indexed_instanced(&self, indices: usize, instances: usize) {
