@@ -101,10 +101,7 @@ fn main() -> Result<(), String> {
             }
         }
 
-        // let start = std::time::Instant::now();
         renderer.run(&scene);
-        // let ft = std::time::Instant::now().duration_since(start);
-        // println!("{} frames/s", 1.0 / ft.as_secs_f32());
     }
 
     Ok(())
