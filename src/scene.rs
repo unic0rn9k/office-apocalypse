@@ -21,16 +21,17 @@ pub struct Material {
 pub struct Chunk {
     pub transform: Mat4,
     pub positions: Vec<(Vec3, MaterialId)>,
+    pub size: Vec3,
 }
 
 #[derive(Debug, Clone)]
 pub struct Light {
-    transform: Mat4,
+    pub transform: Mat4,
 }
 
 #[derive(Debug, Clone)]
 pub struct Object {
-    transform: Mat4,
+    pub transform: Mat4,
 }
 
 #[derive(Debug, Clone)]
@@ -94,8 +95,10 @@ impl Scene {
 
         let mut terrain = Vec::with_capacity(models.len());
         for model in models {
+            let size = model.size;
             let chunk = Chunk {
                 transform: rotation_x * rotation_y * model.transform,
+                size: Vec3::new(size.0 as _, size.1 as _, size.2 as _),
                 positions: model
                     .positions
                     .into_iter()
@@ -231,6 +234,7 @@ impl SceneGraph {
     pub fn new() -> Self {
         Self { nodes: vec![None] }
     }
+
     pub fn insert_entity(&mut self, entity: Entity, parent: &SceneNodeID) -> SceneNodeID {
         self.nodes.push(Some(SceneNode::new(entity, parent)));
         SceneNodeID(self.nodes.len() - 1)
@@ -239,6 +243,7 @@ impl SceneGraph {
     pub fn entity(&self, id: &SceneNodeID) -> Option<&Entity> {
         self.nodes[id.0].as_ref().map(|s| &s.base_entity)
     }
+
     pub fn entity_mut(&mut self, id: &SceneNodeID) -> Option<&mut Entity> {
         self.nodes[id.0].as_mut().map(|s| &mut s.base_entity)
     }
