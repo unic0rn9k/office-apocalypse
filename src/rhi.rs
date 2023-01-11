@@ -125,7 +125,7 @@ impl<'a> Device<'a> {
         let bytes;
         let (size, capacity, data, len) = match b {
             BufferInit::Data(data) => {
-                if T::COPYABLE && T::PADDING == 0 {
+                if T::COPYABLE {
                     (
                         data.len() * std::mem::size_of::<T>(),
                         data.len(),
@@ -138,7 +138,7 @@ impl<'a> Device<'a> {
                 }
             }
             BufferInit::Capacity(capacity) => (
-                capacity * (std::mem::size_of::<T>() + T::PADDING),
+                capacity * (std::mem::size_of::<T>() + T::padding()),
                 capacity,
                 std::ptr::null(),
                 0,
@@ -174,8 +174,7 @@ impl<'a> Device<'a> {
         let id = unsafe { gl!(gl::CreateShader(stage)) }.unwrap();
 
         let string = &(src.as_ptr() as *const _);
-        let length = src.len() as _;
-        unsafe { gl!(gl::ShaderSource(id, 1, string, &length)) }.unwrap();
+        unsafe { gl!(gl::ShaderSource(id, 1, string, src.len() as _)) }.unwrap();
 
         unsafe { gl!(gl::CompileShader(id)) }.unwrap();
 
@@ -229,64 +228,77 @@ impl<'a> Device<'a> {
         ShaderProgram { id }
     }
 
-    // TODO(Bech): Allow for multiple buffers with different layouts.
-    pub fn set_vertex_buffers<T, const R: bool, const W: bool>(&self, bufs: &[&'a Buffer<T, R, W>])
+    /// Binds vertex buffers to the device.
+    pub fn bind_vertex_buffer<T, const R: bool, const W: bool>(&mut self, props: BindProps<T, R, W>)
     where
         T: BufferLayout,
     {
-        let device = self.0.borrow();
-
-        let ids: Vec<u32> = bufs.iter().map(|buf| buf.id).collect();
-        let strides = vec![std::mem::size_of::<T>() as _; ids.len()];
-        let offsets = vec![0; ids.len()];
-
+        let DeviceShared { vao, .. } = &*self.0.borrow();
+        let binding = props.binding as _;
+        let id = props.buffer.id;
+        let stride = T::stride() as _;
         unsafe {
-            gl!(gl::VertexArrayVertexBuffers(
-                device.vao,
-                0,
-                ids.len() as _,
-                ids.as_ptr(),
-                offsets.as_ptr(),
-                strides.as_ptr()
-            ))
-            .unwrap();
+            gl!(gl::VertexArrayVertexBuffer(*vao, binding, id, 0, stride)).unwrap();
         }
 
-        unsafe {
-            gl!(gl::EnableVertexArrayAttrib(device.vao, 0)).unwrap();
-            gl!(gl::EnableVertexArrayAttrib(device.vao, 1)).unwrap();
+        for attrib in props.attributes {
+            let format = &T::LAYOUT[*attrib];
+            let relativeoffset = T::offset(*attrib) as _;
+            let attrib = *attrib as _;
+            unsafe {
+                gl!(gl::EnableVertexArrayAttrib(*vao, attrib)).unwrap();
+                gl!(gl::VertexArrayAttribBinding(*vao, attrib, binding)).unwrap();
+            }
 
-            gl!(gl::VertexArrayAttribFormat(
-                device.vao,
-                0,
-                3,
-                gl::FLOAT,
-                gl::FALSE,
-                0
-            ))
-            .unwrap();
+            let (size, type_, normalized) = match format {
+                Format::F32 => (1, gl::FLOAT, gl::FALSE),
+                Format::Vec2 => (2, gl::FLOAT, gl::FALSE),
+                Format::Vec3 => (3, gl::FLOAT, gl::FALSE),
+                Format::Vec4 => (4, gl::FLOAT, gl::FALSE),
+                Format::Mat3 => (12, gl::FLOAT, gl::FALSE),
+                Format::Mat4 => (16, gl::FLOAT, gl::FALSE),
+                Format::U32 => (4, gl::UNSIGNED_INT, gl::FALSE),
+            };
 
-            gl!(gl::VertexArrayAttribFormat(
-                device.vao,
-                1,
-                2,
-                gl::FLOAT,
-                gl::FALSE,
-                (3 * std::mem::size_of::<f32>()) as _,
-            ))
-            .unwrap();
+            if type_ == gl::UNSIGNED_INT {
+                unsafe {
+                    gl!(gl::VertexArrayAttribIFormat(
+                        *vao,
+                        attrib,
+                        size,
+                        type_,
+                        relativeoffset
+                    ))
+                    .unwrap();
+                }
+            } else {
+                unsafe {
+                    gl!(gl::VertexArrayAttribFormat(
+                        *vao,
+                        attrib,
+                        size,
+                        type_,
+                        normalized,
+                        relativeoffset
+                    ))
+                    .unwrap();
+                }
+            }
 
-            gl!(gl::VertexArrayAttribBinding(device.vao, 0, 0)).unwrap();
-            gl!(gl::VertexArrayAttribBinding(device.vao, 1, 0)).unwrap();
+            if props.instanced {
+                unsafe {
+                    gl!(gl::VertexArrayBindingDivisor(*vao, binding, 1)).unwrap();
+                }
+            }
         }
     }
 
-    pub fn set_index_buffer<const R: bool, const W: bool>(&self, buf: &'a Buffer<u32, R, W>) {
+    pub fn bind_index_buffer<const R: bool, const W: bool>(&self, buf: &'a Buffer<u32, R, W>) {
         let device = self.0.borrow();
         unsafe { gl!(gl::VertexArrayElementBuffer(device.vao, buf.id)) }.unwrap();
     }
 
-    pub fn set_shader_program(&self, program: &'a ShaderProgram) {
+    pub fn bind_shader_program(&self, program: &'a ShaderProgram) {
         let _device = self.0.borrow();
         unsafe { gl!(gl::UseProgram(program.id)) }.unwrap();
     }
@@ -330,6 +342,13 @@ impl<'a> Device<'a> {
     }
 }
 
+pub struct BindProps<'a, T: BufferLayout, const R: bool, const W: bool> {
+    binding: usize,
+    attributes: &'a [usize],
+    buffer: &'a Buffer<T, R, W>,
+    instanced: bool,
+}
+
 pub struct Swapchain {
     _instance: Rc<InstanceShared>,
     window: Window,
@@ -363,9 +382,51 @@ pub enum Format {
 /// # Safety
 pub unsafe trait BufferLayout: Sized {
     const LAYOUT: &'static [Format];
-    const PADDING: usize;
+    const PADDING: &'static [usize];
     const COPYABLE: bool = false;
 
+    /// Computes the amount of bytes (stride) of each element in the buffer
+    ///
+    /// Includes the size of the padding.
+    fn stride() -> usize {
+        let format_to_size = |format: &Format| match format {
+            Format::F32 => 4,
+            Format::Vec2 => 8,
+            Format::Vec3 => 12,
+            Format::Vec4 => 16,
+            Format::Mat3 => 32,
+            Format::Mat4 => 48,
+            Format::U32 => 4,
+        };
+
+        let size: usize = Self::LAYOUT.iter().map(format_to_size).sum();
+        size + Self::padding()
+    }
+
+    fn padding() -> usize {
+        Self::PADDING.iter().sum()
+    }
+
+    /// Computes the offset for the attribute located at `index` in bytes
+    ///
+    /// Includes the size of the padding up to `index`, but not after.
+    fn offset(index: usize) -> usize {
+        let format_to_size = |format: &Format| match format {
+            Format::F32 => 4,
+            Format::Vec2 => 8,
+            Format::Vec3 => 12,
+            Format::Vec4 => 16,
+            Format::Mat3 => 32,
+            Format::Mat4 => 48,
+            Format::U32 => 4,
+        };
+
+        let size: usize = Self::LAYOUT[0..index + 1].iter().map(format_to_size).sum();
+        let padding: usize = Self::PADDING[0..index].iter().sum();
+        size + padding
+    }
+
+    // TODO: Refactor to Box<[]> avoid heap allocations yes yes
     fn to_bytes(items: &[Self]) -> Vec<u8>;
 }
 
@@ -374,7 +435,7 @@ macro_rules! generate_layouts {
         $(
             unsafe impl BufferLayout for $layout {
                 const LAYOUT: &'static [Format] = &[Format::$format];
-                const PADDING: usize = 0;
+                const PADDING: &'static [usize] = &[0];
                 const COPYABLE: bool = true;
 
                 fn to_bytes(_items: &[Self]) -> Vec<u8> {
@@ -441,7 +502,7 @@ pub struct MapRead<'a, T: BufferLayout, const W: bool>(&'a Buffer<T, true, W>);
 impl<'a, T: BufferLayout + Default + Clone, const W: bool> MapRead<'a, T, W> {
     pub fn read(&self) -> Vec<T> {
         let mapped = unsafe { gl!(gl::MapNamedBuffer(self.0.id, gl::READ_ONLY)) }.unwrap();
-        if T::COPYABLE && T::PADDING == 0 {
+        if T::COPYABLE {
             let mut storage = vec![T::default(); self.0.len()];
             unsafe { std::ptr::copy(mapped as *const _, storage.as_mut_ptr(), storage.len()) };
             storage
@@ -465,7 +526,7 @@ impl<'a, T: BufferLayout, const R: bool> MapWrite<'a, T, R> {
         assert!(buffer.capacity() >= items.len());
 
         let mapped = unsafe { gl!(gl::MapNamedBuffer(buffer.id, gl::WRITE_ONLY)) }.unwrap();
-        if T::COPYABLE && T::PADDING == 0 {
+        if T::COPYABLE {
             let count = items.len() * std::mem::size_of::<T>();
             unsafe { std::ptr::copy(items.as_ptr() as *const _, mapped, count) };
         } else {

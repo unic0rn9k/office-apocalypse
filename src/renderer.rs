@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use glam::*;
 use sdl2::video::*;
 
@@ -82,18 +84,19 @@ impl Renderer<'_> {
 
     /// Renders a single frame
     pub fn run(&mut self, scene: &Scene) {
-        unsafe { gl!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT)).unwrap() };
-
         let Self { device, cache, .. } = self;
 
-        // TODO: Make pretty :)
+        unsafe { gl!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT)) }.unwrap();
+
         if cache.materials.is_none() {
             cache.materials = Some(device.new_buffer(BufferInit::Data(scene.materials())));
         }
 
         let view_projection = scene.camera.view_projection();
+
+        // TODO: Batch multiple chunks into a single drawcall.
         for chunk in scene.terrain() {
-            self.render_chunk(view_projection, chunk)
+            self.render_chunk(view_projection, chunk);
         }
 
         self.swapchain.present();
@@ -193,8 +196,8 @@ impl Renderer<'_> {
 
 unsafe impl BufferLayout for Material {
     const LAYOUT: &'static [Format] = &[Format::Vec4, Format::F32, Format::F32];
+    const PADDING: &'static [usize] = &[0, 0, 8];
     const COPYABLE: bool = false;
-    const PADDING: usize = 8;
 
     // OpenGL require that arrays are aligned to a multiple of 16.
     // Since the material contains a total of 24 bytes, the next multiple is 32.
