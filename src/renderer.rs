@@ -1,3 +1,5 @@
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 use glam::*;
@@ -6,11 +8,123 @@ use sdl2::video::*;
 use crate::rhi::*;
 use crate::scene::*;
 
-pub struct Cache {
+struct Cache {
     vertices: Buffer<Vertex>,
     matrices: Buffer<Mat4, false, true>,
     materials: Option<Buffer<Material>>,
     buffers: Vec<Buffer<Vec3, false, true>>,
+}
+
+struct Profiler {
+    task: Option<&'static str>,
+    cpu_profiler: (Option<Instant>, Option<Instant>),
+    gpu_profiler: (u32, u32),
+    sender: Option<Sender<(&'static str, f64, f64)>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Profiler {
+    pub fn new(print: bool) -> Self {
+        let cpu_profiler = (None, None);
+
+        let gpu_profiler = unsafe {
+            let mut queries = [u32::MAX, u32::MAX];
+            gl!(gl::CreateQueries(gl::TIMESTAMP, 2, queries.as_mut_ptr())).unwrap();
+            (queries[0], queries[1])
+        };
+
+        let (sender, thread) = if print {
+            let (sender, receiver) = channel();
+            let thread = std::thread::spawn(move || {
+                while let Ok((task, cpu_time, gpu_time)) = receiver.recv() {
+                    println!("Task {task}:");
+                    println!("    CPU: {cpu_time}ms");
+                    println!("    GPU: {gpu_time}ms");
+                }
+            });
+
+            (Some(sender), Some(thread))
+        } else {
+            (None, None)
+        };
+
+        Self {
+            task: None,
+            cpu_profiler,
+            gpu_profiler,
+            sender,
+            thread,
+        }
+    }
+
+    pub fn begin_profile(&mut self, task: &'static str) {
+        let _ = self.task.insert(task);
+        let (cpu_start, _) = &mut self.cpu_profiler;
+        let (gpu_start, _) = &mut self.gpu_profiler;
+
+        if cpu_start.is_none() {
+            let _ = cpu_start.insert(Instant::now());
+
+            unsafe { gl!(gl::QueryCounter(*gpu_start, gl::TIMESTAMP)).unwrap() };
+        }
+    }
+
+    pub fn end_profile(&mut self, task: &'static str) -> Option<(f64, f64)> {
+        const RESULT: gl::types::GLenum = gl::QUERY_RESULT;
+        const AVAILABLE: gl::types::GLenum = gl::QUERY_RESULT_AVAILABLE;
+
+        let (cpu_start, cpu_end) = &mut self.cpu_profiler;
+        let (gpu_start, gpu_end) = &mut self.gpu_profiler;
+
+        if cpu_end.is_none() {
+            let _ = cpu_end.insert(Instant::now());
+            unsafe { gl!(gl::QueryCounter(*gpu_end, gl::TIMESTAMP)).unwrap() };
+        }
+
+        let mut completed = gl::FALSE as _;
+        unsafe { gl!(gl::GetQueryObjectiv(*gpu_end, AVAILABLE, &mut completed)).unwrap() };
+        if completed as u8 == gl::TRUE {
+            let gpu_time = {
+                let mut start = 0;
+                unsafe { gl!(gl::GetQueryObjectui64v(*gpu_start, RESULT, &mut start)).unwrap() };
+
+                let mut end = 0;
+                unsafe { gl!(gl::GetQueryObjectui64v(*gpu_end, RESULT, &mut end)).unwrap() };
+
+                (end - start) as f64 / 1_000_000.0
+            };
+
+            let cpu_time = {
+                let start = cpu_start.expect("Measurement hasn't been started yet");
+                let end = cpu_end.unwrap();
+                end.duration_since(start).as_secs_f64() * 1000.0
+            };
+
+            if let Some(sender) = &self.sender {
+                sender.send((task, cpu_time, gpu_time)).unwrap();
+            }
+
+            self.task = None;
+            self.cpu_profiler = (None, None);
+
+            Some((cpu_time, gpu_time))
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for Profiler {
+    fn drop(&mut self) {
+        drop(self.sender.take());
+
+        let mut queries = [self.gpu_profiler.0, self.gpu_profiler.1];
+        unsafe { gl!(gl::DeleteQueries(2, queries.as_mut_ptr())).unwrap() };
+
+        if let Some(handle) = self.thread.take() {
+            handle.join().unwrap();
+        }
+    }
 }
 
 pub struct Renderer<'a> {
@@ -19,6 +133,7 @@ pub struct Renderer<'a> {
     swapchain: Swapchain,
     shaders: ShaderProgram,
     cache: Cache,
+    profiler: Profiler,
 }
 
 impl Renderer<'_> {
@@ -70,23 +185,7 @@ impl Renderer<'_> {
         Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0))
     ];
 
-    #[rustfmt::skip]
-    const INDICES: [u32; 36] = [
-        0, 1, 2,
-    	2, 3, 0,
-    	1, 5, 6,
-    	6, 2, 1,
-    	7, 6, 5,
-    	5, 4, 7,
-    	4, 0, 3,
-    	3, 7, 4,
-    	4, 5, 1,
-    	1, 0, 4,
-    	3, 2, 6,
-    	6, 7, 3
-    ];
-
-    pub fn new(window: &Window, vsync: bool) -> Self {
+    pub fn new(window: &Window, vsync: bool, profile: bool) -> Self {
         let _instance = Instance::new(window, true);
         let device = _instance.new_device();
         let swapchain = _instance.new_swapchain(1, vsync);
@@ -96,7 +195,6 @@ impl Renderer<'_> {
         let shaders = device.new_shader_program(&vertex_shader, &pixel_shader);
 
         let vertices = device.new_buffer(BufferInit::Data(&Self::VERTICES));
-        // let indices = device.new_buffer(BufferInit::Data(&Self::INDICES));
         let matrices = device.new_buffer(BufferInit::Capacity(2));
 
         Self {
@@ -110,12 +208,15 @@ impl Renderer<'_> {
                 materials: None,
                 buffers: Vec::default(),
             },
+            profiler: Profiler::new(profile),
         }
     }
 
     /// Renders a single frame
-    pub fn run(&mut self, scene: &mut Scene) {
+    pub fn run(&mut self, scene: &mut Scene) -> Option<f64> {
         let Self { device, cache, .. } = self;
+
+        self.profiler.begin_profile("Renderer");
 
         unsafe { gl!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT)) }.unwrap();
 
@@ -131,6 +232,9 @@ impl Renderer<'_> {
         }
 
         self.swapchain.present();
+
+        let measurement = self.profiler.end_profile("Renderer");
+        measurement.map(|(cpu, gpu)| cpu + gpu)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

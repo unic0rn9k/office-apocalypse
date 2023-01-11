@@ -46,13 +46,14 @@ fn main() -> Result<(), String> {
     let audio_subsystem = sdl.audio()?;
     let mut event_pump = sdl.event_pump()?;
 
-    let mut window = setup_window(&video_subsystem);
-    let mut renderer = Renderer::new(&window, true);
+    let window = setup_window(&video_subsystem);
+    let mut renderer = Renderer::new(&window, true, false);
 
     let camera = Camera::new(Vec3::new(0.0, 0.0, -2.0), ASPECT_RATIO);
     let mut scene = Scene::open("./assets/gun.vox", camera);
     let mut game = Game::new(&mut scene);
 
+    let mut dt = 1.0;
     'running: loop {
         for event in event_pump.poll_iter() {
             #[allow(clippy::collapsible_match, clippy::single_match)]
@@ -70,13 +71,16 @@ fn main() -> Result<(), String> {
             }
         }
 
+        if let Some(frametime) = renderer.run(&mut scene) {
+            dt = (frametime / 1000.0) as f32;
+        }
+
         let mut systems = GameSystems {
             keyboard: event_pump.keyboard_state(),
-            dt: 1.0,
+            dt,
         };
 
         game.run(&mut systems, &mut scene);
-        renderer.run(&mut scene);
     }
 
     Ok(())
