@@ -11,6 +11,27 @@ The goal with this game is to show off our programming skills to our teacher, th
 
 ## TODO
 
-- [ ] Renderer
-- [ ] Scene format
-- [ ] Common api (for scene construction and rendering)
+- [-] Renderer
+- [-] Scene format
+- [-] Common api (for scene construction and rendering)
+
+### Models
+Thought inspiration from stanley parable and severance would be a good idea. (google it)
+
+- *Cubical models*
+- [ ] Desk
+- [ ] Plants
+- [ ] Printer
+- [ ] Folders
+- [ ] Cabinets
+- [ ] Chairs
+- [ ] Divider walls (thin walls, that dont go all the way up to the roof)
+- [ ] Drawers
+- [ ] desk lamp (mby just some variantions of a desk model, with different stuff on it)
+
+- *Meeting room/lounge models*
+- [ ] long tables
+- [ ] projecters
+- [ ] Coffe machine
+- [ ] Sofa
+- [ ] Water dispenser
