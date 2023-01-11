@@ -16,7 +16,7 @@ pub struct Material {
     pub metalness: f32,
 }
 
-/// A chunk is a cube with consisting of `x` by `y` by `z` voxels.
+/// A chunk is a cube consisting of `x` by `y` by `z` voxels.
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub transform: Mat4,
