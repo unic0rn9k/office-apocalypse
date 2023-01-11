@@ -15,6 +15,7 @@ use crate::scene::*;
 mod renderer;
 mod rhi;
 mod scene;
+mod tensor;
 mod vox;
 
 const WIDTH: u32 = 640;

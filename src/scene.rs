@@ -7,7 +7,7 @@ use crate::vox::{self, VoxMaterial};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct MaterialId(pub usize);
+pub struct MaterialID(pub usize);
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct Material {
@@ -20,7 +20,7 @@ pub struct Material {
 #[derive(Debug, Clone)]
 pub struct Chunk {
     pub transform: Mat4,
-    pub positions: Vec<(Vec3, MaterialId)>,
+    pub positions: Vec<(Vec3, MaterialID)>,
     pub size: Vec3,
 }
 
@@ -102,7 +102,7 @@ impl Scene {
                 positions: model
                     .positions
                     .into_iter()
-                    .map(|(p, id)| (p, MaterialId(id.0 - 1)))
+                    .map(|(p, id)| (p, MaterialID(id.0 - 1)))
                     .collect(),
             };
             terrain.push(Entity::Terrain(chunk));
