@@ -241,9 +241,9 @@ impl<'a> Device<'a> {
             gl!(gl::VertexArrayVertexBuffer(*vao, binding, id, 0, stride)).unwrap();
         }
 
-        for attrib in props.attributes {
-            let format = &T::LAYOUT[*attrib];
-            let relativeoffset = T::offset(*attrib) as _;
+        for (i, attrib) in props.attributes.iter().enumerate() {
+            let format = &T::LAYOUT[i];
+            let relativeoffset = T::offset(i) as _;
             let attrib = *attrib as _;
             unsafe {
                 gl!(gl::EnableVertexArrayAttrib(*vao, attrib)).unwrap();
@@ -343,10 +343,10 @@ impl<'a> Device<'a> {
 }
 
 pub struct BindProps<'a, T: BufferLayout, const R: bool, const W: bool> {
-    binding: usize,
-    attributes: &'a [usize],
-    buffer: &'a Buffer<T, R, W>,
-    instanced: bool,
+    pub binding: usize,
+    pub attributes: &'a [usize],
+    pub buffer: &'a Buffer<T, R, W>,
+    pub instanced: bool,
 }
 
 pub struct Swapchain {
@@ -407,9 +407,11 @@ pub unsafe trait BufferLayout: Sized {
         Self::PADDING.iter().sum()
     }
 
-    /// Computes the offset for the attribute located at `index` in bytes
+    /// Computes the offset between elements for the attribute located at
+    /// `index` in bytes
     ///
     /// Includes the size of the padding up to `index`, but not after.
+    // TODO(Bech): Probably not working...
     fn offset(index: usize) -> usize {
         let format_to_size = |format: &Format| match format {
             Format::F32 => 4,
@@ -423,7 +425,7 @@ pub unsafe trait BufferLayout: Sized {
 
         let size: usize = Self::LAYOUT[0..index + 1].iter().map(format_to_size).sum();
         let padding: usize = Self::PADDING[0..index].iter().sum();
-        size + padding
+        Self::stride() - size + padding
     }
 
     // TODO: Refactor to Box<[]> avoid heap allocations yes yes
