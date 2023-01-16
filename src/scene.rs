@@ -182,10 +182,10 @@ impl Camera {
     }
 }
 
-pub struct SceneNodeID(usize);
+pub struct SceneNodeId(usize);
 
 pub struct SceneNode {
-    parent: SceneNodeID,
+    parent: SceneNodeId,
     base_entity: Entity,
     mutated_entity: Entity,
 }
@@ -193,7 +193,7 @@ pub struct SceneNode {
 impl Clone for SceneNode {
     fn clone(&self) -> Self {
         Self {
-            parent: SceneNodeID(self.parent.0),
+            parent: SceneNodeId(self.parent.0),
             base_entity: self.base_entity.clone(),
             mutated_entity: self.mutated_entity.clone(),
         }
@@ -201,9 +201,9 @@ impl Clone for SceneNode {
 }
 
 impl SceneNode {
-    fn new(entity: Entity, parent: &SceneNodeID) -> Self {
+    fn new(entity: Entity, parent: &SceneNodeId) -> Self {
         Self {
-            parent: SceneNodeID(parent.0),
+            parent: SceneNodeId(parent.0),
             base_entity: entity.clone(),
             mutated_entity: entity,
         }
@@ -235,16 +235,16 @@ impl SceneGraph {
         Self { nodes: vec![None] }
     }
 
-    pub fn insert_entity(&mut self, entity: Entity, parent: &SceneNodeID) -> SceneNodeID {
+    pub fn insert_entity(&mut self, entity: Entity, parent: &SceneNodeId) -> SceneNodeId {
         self.nodes.push(Some(SceneNode::new(entity, parent)));
-        SceneNodeID(self.nodes.len() - 1)
+        SceneNodeId(self.nodes.len() - 1)
     }
 
-    pub fn entity(&self, id: &SceneNodeID) -> Option<&Entity> {
+    pub fn entity(&self, id: &SceneNodeId) -> Option<&Entity> {
         self.nodes[id.0].as_ref().map(|s| &s.base_entity)
     }
 
-    pub fn entity_mut(&mut self, id: &SceneNodeID) -> Option<&mut Entity> {
+    pub fn entity_mut(&mut self, id: &SceneNodeId) -> Option<&mut Entity> {
         self.nodes[id.0].as_mut().map(|s| &mut s.base_entity)
     }
 
@@ -261,11 +261,11 @@ impl SceneGraph {
         }
     }
 
-    pub fn root_node(&self) -> SceneNodeID {
-        SceneNodeID(0)
+    pub fn root_node(&self) -> SceneNodeId {
+        SceneNodeId(0)
     }
 
-    pub fn mutated_entity(&self, id: &SceneNodeID) -> Option<&Entity> {
+    pub fn mutated_entity(&self, id: &SceneNodeId) -> Option<&Entity> {
         self.nodes[id.0].as_ref().map(|s| &s.mutated_entity)
     }
 }
