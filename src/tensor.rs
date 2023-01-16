@@ -1,7 +1,8 @@
-use glam::{UVec3, Vec3Swizzles};
+use glam::UVec3;
 
 use crate::scene::MaterialId;
 
+#[derive(Clone, Debug)]
 pub enum SparseNode {
     Nothing(u32),
     Voxel(MaterialId),
@@ -22,16 +23,17 @@ impl SparseNode {
         }
     }
 
-    fn is_nil(&self) -> bool {
+    fn nils(&self) -> u32 {
+        // Hej Nils :)
         match self {
-            Nothing(_) => true,
-            Voxel(_) => false,
+            Nothing(n) => *n,
+            Voxel(_) => 0,
         }
     }
 
-    fn add_nil(&mut self) {
+    fn add_nils(&mut self, i: u32) {
         match self {
-            Nothing(n) => *n += 1,
+            Nothing(n) => *n += i,
             Voxel(_) => panic!("Called add_nil on `SparseNode::Voxel`"),
         }
     }
@@ -48,13 +50,13 @@ impl SparseTensorChunk {
         let mut n = 0;
 
         while n < self.nodes.len() {
-            let is_nil = self.nodes[n].is_nil();
-            if prev_was_nil && is_nil {
+            let nils = self.nodes[n].nils();
+            if prev_was_nil && nils != 0 {
                 self.nodes.remove(n);
-                self.nodes[n - 1].add_nil();
+                self.nodes[n - 1].add_nils(nils);
+                prev_was_nil = true;
                 continue;
             }
-            prev_was_nil = is_nil;
             n += 1;
         }
     }
@@ -86,7 +88,7 @@ impl SparseTensorChunk {
     }
 
     pub fn near_idx(&self, i_: UVec3) -> usize {
-        let i = i_[0] + i_[1] * self.dim[0] + i_[2] * self.dim[1];
+        let i = i_[0] + i_[1] * self.dim[0] + i_[2] * self.dim[1] * self.dim[0];
 
         if i > self.dim.to_array().iter().product() {
             panic!("index {i_:?} out of bounds {:?}", self.dim);
@@ -102,7 +104,7 @@ impl SparseTensorChunk {
                 return n;
             }
             match node {
-                SparseNode::Nothing(nils) => j += nils, // Hej Nils :)
+                SparseNode::Nothing(nils) => j += nils,
                 SparseNode::Voxel(_) => j += 1,
             }
         }
@@ -111,7 +113,17 @@ impl SparseTensorChunk {
     }
 
     pub fn insert(&mut self, i: UVec3, vox: Option<MaterialId>) {
-        todo!() // Cant do this, without making it a graph :/
+        let node = if let Some(v) = vox {
+            Voxel(v)
+        } else {
+            Nothing(1)
+        };
+        let i = self.near_idx(i);
+
+        match self.nodes[i] {
+            Nothing(1) | Voxel(_) => self.nodes[i] = node,
+            _ => panic!("Cannot insert space slot containing multiple empty voxels"),
+        }
     }
 
     pub fn voxel(&self, i: UVec3) -> Option<&MaterialId> {
@@ -125,7 +137,131 @@ impl SparseTensorChunk {
         Self { nodes: vec![], dim }
     }
 
-    pub fn from_model(model: Vec<(UVec3, MaterialId)>, size: UVec3) -> Self {
-        todo!()
+    pub fn from_model(model: &[(UVec3, MaterialId)], dim: UVec3) -> Self {
+        // TODO: Det ville være smart, hvis man kunne antage modeler altid starter i 0,0
+        //let mut min_bound = model[0].0;
+        //let mut max_bound = model[0].0;
+
+        //for (p, _) in model {
+        //    min_bound = p.min(min_bound);
+        //    max_bound = p.min(max_bound);
+        //}
+
+        //let dim = max_bound - min_bound;
+        let nodes = vec![Nothing(1); dim.to_array().iter().product::<u32>() as usize];
+
+        let mut tmp = Self { dim, nodes };
+
+        for (p, m) in model {
+            tmp.insert(*p, Some(*m))
+        }
+        tmp.compress();
+        tmp
+    }
+}
+
+#[cfg(test)]
+mod test {
+    extern crate test;
+    use std::collections::HashMap;
+
+    use test::{black_box, Bencher};
+
+    use crate::scene::MaterialId;
+    use crate::tensor::SparseTensorChunk;
+
+    #[test]
+    fn same_same() {
+        let m = MaterialId(0);
+        let model = [
+            ((0, 0, 0).into(), m),
+            ((0, 1, 0).into(), m),
+            ((1, 0, 0).into(), m),
+            ((1, 0, 1).into(), m),
+            ((1, 1, 1).into(), m),
+            ((0, 0, 2).into(), m),
+        ];
+        let t = SparseTensorChunk::from_model(&model, (2, 2, 3).into());
+        let mut t2 = HashMap::new();
+
+        for (p, m) in &model {
+            t2.insert(p.to_array(), *m);
+        }
+
+        for z in 0..3 {
+            for x in 0..2 {
+                for y in 0..2 {
+                    assert_eq!(t.voxel((x, y, z).into()), t2.get(&[x, y, z]))
+                }
+            }
+        }
+
+        /*
+        println!("{:?}", t.nodes);
+        println!("----");
+        for z in 0..3 {
+            for x in 0..2 {
+                print!("|");
+                for y in 0..2 {
+                    match t.voxel((x, y, z).into()) {
+                        Some(_) => print!("#"),
+                        None => print!("."),
+                    }
+                }
+                println!("|");
+            }
+            println!("----");
+        }
+        println!();
+        println!("----");
+        for z in 0..3 {
+            for x in 0..2 {
+                print!("|");
+                for y in 0..2 {
+                    match t2.get(&[x, y, z]) {
+                        Some(_) => print!("#"),
+                        None => print!("."),
+                    }
+                }
+                println!("|");
+            }
+            println!("----");
+        }
+        */
+    }
+
+    #[bench]
+    fn weird(b: &mut Bencher) {
+        let m = black_box(MaterialId(0));
+        let model = [
+            black_box(((0, 0, 0).into(), m)),
+            black_box(((0, 1, 0).into(), m)),
+            black_box(((1, 0, 0).into(), m)),
+            black_box(((1, 0, 1).into(), m)),
+            black_box(((1, 1, 1).into(), m)),
+            black_box(((0, 0, 2).into(), m)),
+        ];
+        let t = SparseTensorChunk::from_model(&model, (2, 2, 3).into());
+        b.iter(|| black_box(t.voxel(black_box((1, 1, 1).into()))))
+    }
+
+    #[bench]
+    fn hashmap(b: &mut Bencher) {
+        let m = black_box(MaterialId(0));
+        let model = [
+            black_box(([0, 0, 0], m)),
+            black_box(([0, 1, 0], m)),
+            black_box(([1, 0, 0], m)),
+            black_box(([1, 0, 1], m)),
+            black_box(([1, 1, 1], m)),
+            black_box(([0, 0, 2], m)),
+        ];
+
+        let mut t = HashMap::new();
+        for (p, m) in &model {
+            t.insert(p, m);
+        }
+
+        b.iter(|| black_box(t.get(black_box(&[1, 1, 1]))))
     }
 }
