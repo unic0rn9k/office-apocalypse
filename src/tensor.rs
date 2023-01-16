@@ -1,3 +1,5 @@
+use std::iter::FilterMap;
+
 use glam::UVec3;
 
 use crate::scene::MaterialId;
@@ -5,18 +7,18 @@ use crate::scene::MaterialId;
 #[derive(Clone, Debug)]
 pub enum SparseNode {
     Nothing(u32),
-    Voxel(MaterialId),
+    Voxel((UVec3, MaterialId)),
 }
 use SparseNode::*;
 
 impl SparseNode {
-    fn voxel(&self) -> &MaterialId {
+    fn voxel(&self) -> &(UVec3, MaterialId) {
         match self {
             Nothing(_) => panic!("Called voxel on `SparseNode::Nothing`"),
             Voxel(v) => v,
         }
     }
-    fn voxel_mut(&mut self) -> &mut MaterialId {
+    fn voxel_mut(&mut self) -> &mut (UVec3, MaterialId) {
         match self {
             Nothing(_) => panic!("Called voxel_mut on `SparseNode::Nothing`"),
             Voxel(v) => v,
@@ -114,7 +116,7 @@ impl SparseTensorChunk {
 
     pub fn insert(&mut self, i: UVec3, vox: Option<MaterialId>) {
         let node = if let Some(v) = vox {
-            Voxel(v)
+            Voxel((i, v))
         } else {
             Nothing(1)
         };
@@ -126,10 +128,10 @@ impl SparseTensorChunk {
         }
     }
 
-    pub fn voxel(&self, i: UVec3) -> Option<&MaterialId> {
+    pub fn voxel(&self, i: UVec3) -> Option<&(UVec3, MaterialId)> {
         self.idx(i).map(|i| self.nodes[i].voxel())
     }
-    pub fn voxel_mut(&mut self, i: UVec3) -> Option<&mut MaterialId> {
+    pub fn voxel_mut(&mut self, i: UVec3) -> Option<&mut (UVec3, MaterialId)> {
         self.idx(i).map(|i| self.nodes[i].voxel_mut())
     }
 
@@ -157,6 +159,22 @@ impl SparseTensorChunk {
         }
         tmp.compress();
         tmp
+    }
+}
+
+impl<'a> IntoIterator for &'a SparseTensorChunk {
+    type Item = &'a (UVec3, MaterialId);
+
+    type IntoIter = FilterMap<
+        std::slice::Iter<'a, SparseNode>,
+        fn(&SparseNode) -> Option<&(UVec3, MaterialId)>,
+    >;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.nodes.iter().filter_map(|node| match node {
+            Nothing(_) => None,
+            Voxel(some) => Some(some),
+        })
     }
 }
 
@@ -191,7 +209,7 @@ mod test {
         for z in 0..3 {
             for x in 0..2 {
                 for y in 0..2 {
-                    assert_eq!(t.voxel((x, y, z).into()), t2.get(&[x, y, z]))
+                    assert_eq!(t.voxel((x, y, z).into()).map(|v| &v.1), t2.get(&[x, y, z]))
                 }
             }
         }
