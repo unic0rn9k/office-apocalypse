@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
 use glam::*;
+use image::EncodableLayout;
 use sdl2::video::*;
 
 use crate::rhi::*;
@@ -14,8 +14,6 @@ struct Cache {
     matrices: Buffer<Mat4, false, true>,
     materials: Option<Buffer<Material>>,
     buffers: Vec<Buffer<Vec3, false, true>>,
-    font_face: FontFace,
-    font: Texture2D,
 }
 
 struct Profiler {
@@ -130,218 +128,87 @@ impl Drop for Profiler {
     }
 }
 
-pub struct Renderer<'a> {
-    _instance: Instance,
-    device: Device<'a>,
-    swapchain: Swapchain,
-    shaders: ShaderProgram,
-    cache: Cache,
-    profiler: Profiler,
+#[derive(Debug)]
+struct FontGlyph {
+    id: char,
+    position: UVec2,
+    size: UVec2,
+    offset: IVec2,
 }
 
-impl Renderer<'_> {
-    const VERTEX_SHADER: &'static str = include_str!("./shaders/shader.vert");
-    const PIXEL_SHADER: &'static str = include_str!("./shaders/shader.frag");
+#[derive(Debug)]
+struct FontFace {
+    width: usize,
+    height: usize,
+    line_height: u32,
+    base: u32,
+    glyphs: Vec<FontGlyph>,
+}
 
-    const TEXT_VERTEX_SHADER: &'static str = include_str!("./shaders/text.vert");
-    const TEXT_PIXEL_SHADER: &'static str = include_str!("./shaders/text.frag");
+struct TextRenderer<'a> {
+    device: Device<'a>,
+    vertices: Buffer<Vec3, false, false>,
+    shaders: ShaderProgram,
+    font: FontFace,
+    atlas: Texture2D,
+}
 
+impl<'a> TextRenderer<'a> {
     #[rustfmt::skip]
-    const VERTICES: [Vertex; 36] = [
-        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
-        Vertex(Vec3::new( 0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
-        Vertex(Vec3::new( 0.5,  0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
-        Vertex(Vec3::new( 0.5,  0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
-        Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
-        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
-
-        Vertex(Vec3::new(-0.5, -0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
-        Vertex(Vec3::new( 0.5, -0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
-        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
-        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
-        Vertex(Vec3::new(-0.5,  0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
-        Vertex(Vec3::new(-0.5, -0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
-
-        Vertex(Vec3::new(-0.5,  0.5,  0.5), Vec3::new(-1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(-0.5,  0.5, -0.5), Vec3::new(-1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(-0.5, -0.5, -0.5), Vec3::new(-1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(-0.5, -0.5, -0.5), Vec3::new(-1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(-0.5, -0.5,  0.5), Vec3::new(-1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(-0.5,  0.5,  0.5), Vec3::new(-1.0,  0.0,  0.0)),
-
-        Vertex(Vec3::new(0.5,  0.5,  0.5),  Vec3::new(1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(0.5,  0.5, -0.5),  Vec3::new(1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(0.5, -0.5, -0.5),  Vec3::new(1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(0.5, -0.5, -0.5),  Vec3::new(1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(0.5, -0.5,  0.5),  Vec3::new(1.0,  0.0,  0.0)),
-        Vertex(Vec3::new(0.5,  0.5,  0.5),  Vec3::new(1.0,  0.0,  0.0)),
-
-        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0, -1.0,  0.0)),
-        Vertex(Vec3::new( 0.5, -0.5, -0.5),  Vec3::new(0.0, -1.0,  0.0)),
-        Vertex(Vec3::new( 0.5, -0.5,  0.5),  Vec3::new(0.0, -1.0,  0.0)),
-        Vertex(Vec3::new( 0.5, -0.5,  0.5),  Vec3::new(0.0, -1.0,  0.0)),
-        Vertex(Vec3::new(-0.5, -0.5,  0.5),  Vec3::new(0.0, -1.0,  0.0)),
-        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0, -1.0,  0.0)),
-
-        Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0)),
-        Vertex(Vec3::new( 0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0)),
-        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  1.0,  0.0)),
-        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  1.0,  0.0)),
-        Vertex(Vec3::new(-0.5,  0.5,  0.5),  Vec3::new(0.0,  1.0,  0.0)),
-        Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0))
+    const VERTICES: [Vec3; 6] = [
+        Vec3::new( 0.5,  0.5, 0.0),
+        Vec3::new( 0.5, -0.5, 0.0),
+        Vec3::new(-0.5,  0.5, 0.0),
+        Vec3::new( 0.5, -0.5, 0.0),
+        Vec3::new(-0.5, -0.5, 0.0),
+        Vec3::new(-0.5,  0.5, 0.0),
     ];
 
-    pub fn new(window: &Window, vsync: bool, profile: bool) -> Self {
-        let _instance = Instance::new(window, true);
-        let device = _instance.new_device();
-        let swapchain = _instance.new_swapchain(1, vsync);
+    const VERTEX_SHADER: &'static str = include_str!("./shaders/text.vert");
+    const PIXEL_SHADER: &'static str = include_str!("./shaders/text.frag");
 
-        let vertex_shader = device.new_shader(VertexStage, Self::VERTEX_SHADER);
-        let pixel_shader = device.new_shader(PixelStage, Self::PIXEL_SHADER);
-        let shaders = device.new_shader_program(&vertex_shader, &pixel_shader);
+    const FONT_FACE: &'static [u8] = include_bytes!("../assets/fonts/sans-serif/sans-serif.fnt");
+    const FONT_IMAGE: &'static [u8] = include_bytes!("../assets/fonts/sans-serif/sans-serif.png");
 
+    pub fn new(device: Device<'a>) -> Self {
         let vertices = device.new_buffer(BufferInit::Data(&Self::VERTICES));
-        let matrices = device.new_buffer(BufferInit::Capacity(2));
-
-        let font_face = {
-            let bytes = include_bytes!("../assets/fonts/sans-serif/sans-serif.fnt");
-            Self::parse_fnt(bytes)
-        };
-
-        let font = device.new_texture_2d(font_face.width, font_face.height, Format::F32);
-
-        Self {
-            _instance,
-            device,
-            swapchain,
-            shaders,
-            cache: Cache {
-                vertices,
-                matrices,
-                materials: None,
-                buffers: Vec::default(),
-                font_face,
-                font,
-            },
-            profiler: Profiler::new(profile),
-        }
-    }
-
-    /// Renders a single frame
-    pub fn run(&mut self, scene: &mut Scene) -> Option<f64> {
-        let Self { device, cache, .. } = self;
-
-        self.profiler.begin_profile("Renderer");
-
-        unsafe { gl!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT)) }.unwrap();
-
-        if cache.materials.is_none() {
-            cache.materials = Some(device.new_buffer(BufferInit::Data(scene.materials())));
-        }
-
-        let view_projection = scene.camera.view_projection();
-
-        // TODO: Batch multiple chunks into a single drawcall.
-        for chunk in scene.terrain() {
-            self.render_chunk(view_projection, chunk);
-        }
-
-        self.swapchain.present();
-
-        let measurement = self.profiler.end_profile("Renderer");
-        measurement.map(|(cpu, gpu)| cpu + gpu)
-    }
-
-    pub fn resize(&mut self, width: u32, height: u32) {
-        unsafe { gl!(gl::Viewport(0, 0, width as _, height as _)) }.unwrap();
-    }
-
-    fn render_chunk(&mut self, view_projection: Mat4, chunk: &Chunk) {
-        let Self { device, cache, .. } = self;
-
-        let materials = cache
-            .materials
-            .as_ref()
-            .expect("Materials haven't been uploaded to the GPU");
-
-        let mvp = view_projection * chunk.transform;
-        cache.matrices.map_write().write(&[chunk.transform, mvp]);
-
-        let offsets: Vec<_> = chunk.positions.iter().map(|(offset, _)| *offset).collect();
-        let offsets: Buffer<_> = device.new_buffer(BufferInit::Data(&offsets));
-
-        let material_ids: Vec<_> = chunk.positions.iter().map(|(_, id)| id.0 as u32).collect();
-        let material_ids: Buffer<_, false> = device.new_buffer(BufferInit::Data(&material_ids));
-
-        assert_eq!(offsets.len(), material_ids.len());
-
-        device.bind_vertex_buffer(BindProps {
-            binding: 0,
-            attributes: &[0, 1],
-            buffer: &cache.vertices,
-            instanced: false,
-        });
-
-        device.bind_vertex_buffer(BindProps {
-            binding: 1,
-            attributes: &[2],
-            buffer: &offsets,
-            instanced: true,
-        });
-
-        device.bind_vertex_buffer(BindProps {
-            binding: 2,
-            attributes: &[3],
-            buffer: &material_ids,
-            instanced: true,
-        });
-
-        device.bind_shader_program(&self.shaders);
-
-        unsafe {
-            gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 0, cache.matrices.id)).unwrap();
-            gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 1, materials.id)).unwrap();
-        }
-
-        device.draw_instanced(cache.vertices.len(), offsets.len());
-    }
-
-    pub fn render_text(&mut self, text: &str, position: Vec2) {
-        let Self { device, .. } = self;
 
         let shaders = {
-            let vs = device.new_shader(VertexStage, Self::TEXT_VERTEX_SHADER);
-            let ps = device.new_shader(PixelStage, Self::TEXT_PIXEL_SHADER);
+            let vs = device.new_shader(VertexStage, Self::VERTEX_SHADER);
+            let ps = device.new_shader(PixelStage, Self::PIXEL_SHADER);
             device.new_shader_program(&vs, &ps)
         };
 
-        let mut texture = u32::MAX;
-        unsafe { gl!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut texture)).unwrap() };
+        let font = Self::parse_fnt(Self::FONT_FACE);
+        let mut atlas = device.new_texture_2d(font.width, font.height, Format::R8G8B8A8);
+        {
+            let image = image::load_from_memory(Self::FONT_IMAGE).unwrap();
+            atlas.write(image.as_rgba8().unwrap().as_bytes());
+        }
 
-        let mut framebuffer = u32::MAX;
-        unsafe { gl!(gl::CreateFramebuffers(1, &mut framebuffer)).unwrap() };
-
-        unsafe {
-            gl!(gl::NamedFramebufferTexture(
-                framebuffer,
-                gl::COLOR_ATTACHMENT0,
-                texture,
-                0
-            ))
-            .unwrap()
-        };
+        Self {
+            device,
+            vertices,
+            shaders,
+            font,
+            atlas,
+        }
     }
+
+    pub fn render(&mut self, scene: &Scene, framebuffer: Option<Framebuffer>) -> Framebuffer {
+        let Scene { text, .. } = scene;
+        let (position, string) = text[0].clone();
+
+        todo!()
+    }
+
+    pub fn resize(&mut self) {}
 
     fn parse_fnt(bytes: &[u8]) -> FontFace {
         let ident = |s: &str| {
             s.chars()
                 .take_while(|c| c.is_alphabetic())
                 .collect::<String>()
-        };
-
-        let string = |s: &str| {
-            assert!(s.starts_with("\""));
-            s[1..].chars().take_while(|&c| c != '"').collect::<String>()
         };
 
         let kv = |s: &str| {
@@ -434,21 +301,171 @@ impl Renderer<'_> {
     }
 }
 
-#[derive(Debug)]
-struct FontGlyph {
-    id: char,
-    position: UVec2,
-    size: UVec2,
-    offset: IVec2,
+pub struct Renderer<'a> {
+    _instance: Instance,
+    device: Device<'a>,
+    swapchain: Swapchain,
+    shaders: ShaderProgram,
+    cache: Cache,
+    text_renderer: TextRenderer<'a>,
+    profiler: Profiler,
 }
 
-#[derive(Debug)]
-struct FontFace {
-    width: usize,
-    height: usize,
-    line_height: u32,
-    base: u32,
-    glyphs: Vec<FontGlyph>,
+impl Renderer<'_> {
+    const VERTEX_SHADER: &'static str = include_str!("./shaders/shader.vert");
+    const PIXEL_SHADER: &'static str = include_str!("./shaders/shader.frag");
+
+    #[rustfmt::skip]
+    const VERTICES: [Vertex; 36] = [
+        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new( 0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new( 0.5,  0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new( 0.5,  0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
+
+        Vertex(Vec3::new(-0.5, -0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new( 0.5, -0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new(-0.5,  0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+        Vertex(Vec3::new(-0.5, -0.5,  0.5),  Vec3::new(0.0,  0.0,  1.0)),
+
+        Vertex(Vec3::new(-0.5,  0.5,  0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5,  0.5, -0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5, -0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5, -0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5,  0.5), Vec3::new(-1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(-0.5,  0.5,  0.5), Vec3::new(-1.0,  0.0,  0.0)),
+
+        Vertex(Vec3::new(0.5,  0.5,  0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5,  0.5, -0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5, -0.5, -0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5, -0.5, -0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5, -0.5,  0.5),  Vec3::new(1.0,  0.0,  0.0)),
+        Vertex(Vec3::new(0.5,  0.5,  0.5),  Vec3::new(1.0,  0.0,  0.0)),
+
+        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new( 0.5, -0.5, -0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new( 0.5, -0.5,  0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new( 0.5, -0.5,  0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5,  0.5),  Vec3::new(0.0, -1.0,  0.0)),
+        Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0, -1.0,  0.0)),
+
+        Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new( 0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new( 0.5,  0.5,  0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new(-0.5,  0.5,  0.5),  Vec3::new(0.0,  1.0,  0.0)),
+        Vertex(Vec3::new(-0.5,  0.5, -0.5),  Vec3::new(0.0,  1.0,  0.0))
+    ];
+
+    pub fn new(window: &Window, vsync: bool, profile: bool) -> Self {
+        let _instance = Instance::new(window, true);
+        let device = _instance.new_device();
+        let swapchain = _instance.new_swapchain(vsync);
+
+        let vertex_shader = device.new_shader(VertexStage, Self::VERTEX_SHADER);
+        let pixel_shader = device.new_shader(PixelStage, Self::PIXEL_SHADER);
+        let shaders = device.new_shader_program(&vertex_shader, &pixel_shader);
+
+        let vertices = device.new_buffer(BufferInit::Data(&Self::VERTICES));
+        let matrices = device.new_buffer(BufferInit::Capacity(2));
+
+        Self {
+            _instance,
+            text_renderer: TextRenderer::new(device.clone()),
+            device,
+            swapchain,
+            shaders,
+            cache: Cache {
+                vertices,
+                matrices,
+                materials: None,
+                buffers: Vec::default(),
+            },
+            profiler: Profiler::new(profile),
+        }
+    }
+
+    /// Renders a single frame
+    pub fn run(&mut self, scene: &mut Scene) -> Option<f64> {
+        let Self { device, cache, .. } = self;
+
+        self.profiler.begin_profile("Renderer");
+
+        unsafe { gl!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT)) }.unwrap();
+
+        if cache.materials.is_none() {
+            cache.materials = Some(device.new_buffer(BufferInit::Data(scene.materials())));
+        }
+
+        let view_projection = scene.camera.view_projection();
+
+        // TODO: Batch multiple chunks into a single drawcall.
+        for chunk in scene.terrain() {
+            self.render_chunk(view_projection, chunk);
+        }
+
+        self.swapchain.present();
+
+        let measurement = self.profiler.end_profile("Renderer");
+        measurement.map(|(cpu, gpu)| cpu + gpu)
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        unsafe { gl!(gl::Viewport(0, 0, width as _, height as _)) }.unwrap();
+    }
+
+    fn render_chunk(&mut self, view_projection: Mat4, chunk: &Chunk) {
+        let Self { device, cache, .. } = self;
+
+        let materials = cache
+            .materials
+            .as_ref()
+            .expect("Materials haven't been uploaded to the GPU");
+
+        let mvp = view_projection * chunk.transform;
+        cache.matrices.map_write().write(&[chunk.transform, mvp]);
+
+        let offsets: Vec<_> = chunk.positions.iter().map(|(offset, _)| *offset).collect();
+        let offsets: Buffer<_> = device.new_buffer(BufferInit::Data(&offsets));
+
+        let material_ids: Vec<_> = chunk.positions.iter().map(|(_, id)| id.0 as u32).collect();
+        let material_ids: Buffer<_, false> = device.new_buffer(BufferInit::Data(&material_ids));
+
+        assert_eq!(offsets.len(), material_ids.len());
+
+        device.bind_vertex_buffer(BindProps {
+            binding: 0,
+            attributes: &[0, 1],
+            buffer: &cache.vertices,
+            instanced: false,
+        });
+
+        device.bind_vertex_buffer(BindProps {
+            binding: 1,
+            attributes: &[2],
+            buffer: &offsets,
+            instanced: true,
+        });
+
+        device.bind_vertex_buffer(BindProps {
+            binding: 2,
+            attributes: &[3],
+            buffer: &material_ids,
+            instanced: true,
+        });
+
+        device.bind_shader_program(&self.shaders);
+
+        unsafe {
+            gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 0, cache.matrices.id)).unwrap();
+            gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 1, materials.id)).unwrap();
+        }
+
+        device.draw_instanced(cache.vertices.len(), offsets.len());
+    }
 }
 
 unsafe impl BufferLayout for Material {
@@ -494,9 +511,3 @@ unsafe impl BufferLayout for Vertex {
 
 #[repr(C)]
 struct Vertex(Vec3, Vec3);
-
-impl Vertex {
-    pub fn new(position: Vec3, normal: Vec3) -> Self {
-        Self(position, normal)
-    }
-}

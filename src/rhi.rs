@@ -4,6 +4,7 @@ use std::marker::*;
 use std::rc::*;
 
 use glam::{Mat3, Mat4, Vec2, Vec3, Vec4};
+use image::Frame;
 use sdl2::video::*;
 
 macro_rules! gl {
@@ -67,7 +68,7 @@ impl Instance {
         Device(Rc::new(RefCell::new(shared)), PhantomData)
     }
 
-    pub fn new_swapchain(&self, nframebuffers: usize, vsync: bool) -> Swapchain {
+    pub fn new_swapchain(&self, vsync: bool) -> Swapchain {
         let interval = if vsync {
             SwapInterval::VSync
         } else {
@@ -77,16 +78,9 @@ impl Instance {
         let window = unsafe { Window::from_ref(Rc::clone(&self.0.window_context)) };
         let _ = window.subsystem().gl_set_swap_interval(interval);
 
-        let mut framebuffers = vec![0; nframebuffers];
-        let n = nframebuffers as i32;
-        unsafe { gl!(gl::CreateFramebuffers(n, framebuffers.as_mut_ptr())) }.unwrap();
-
-        let framebuffers = framebuffers.into_iter().map(Framebuffer).collect();
-
         Swapchain {
             _instance: Rc::clone(&self.0),
             window,
-            framebuffers,
         }
     }
 
@@ -109,6 +103,7 @@ struct DeviceShared {
     _instance: Rc<InstanceShared>,
 }
 
+#[derive(Clone)]
 pub struct Device<'a>(Rc<RefCell<DeviceShared>>, PhantomData<&'a ()>);
 
 impl<'a> Device<'a> {
@@ -187,6 +182,29 @@ impl<'a> Device<'a> {
         }
     }
 
+    pub fn new_framebuffer(&self, texture: Texture2D) -> Framebuffer {
+        let mut id = u32::MAX;
+        unsafe { gl!(gl::CreateFramebuffers(1, &mut id)).unwrap() };
+
+        unsafe {
+            gl!(gl::NamedFramebufferTexture(
+                id,
+                gl::COLOR_ATTACHMENT0,
+                texture.id,
+                0
+            ))
+            .unwrap()
+        };
+
+        unsafe {
+            if gl::CheckNamedFramebufferStatus(id, gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
+                panic!("Failed to create framebuffer")
+            }
+        }
+
+        Framebuffer { id, texture }
+    }
+
     pub fn new_shader<S: Stage>(&self, _stage: S, src: &str) -> Shader<S> {
         let stage = match S::STAGE_TYPE {
             StageType::Vertex => gl::VERTEX_SHADER,
@@ -227,9 +245,11 @@ impl<'a> Device<'a> {
 
     pub fn new_shader_program(&self, vs: &VertexShader, ps: &PixelShader) -> ShaderProgram {
         let id = unsafe { gl::CreateProgram() };
-        unsafe { gl!(gl::AttachShader(id, vs.0.id)) }.unwrap();
-        unsafe { gl!(gl::AttachShader(id, ps.0.id)) }.unwrap();
-        unsafe { gl!(gl::LinkProgram(id)) }.unwrap();
+        unsafe {
+            gl!(gl::AttachShader(id, vs.0.id)).unwrap();
+            gl!(gl::AttachShader(id, ps.0.id)).unwrap();
+            gl!(gl::LinkProgram(id)).unwrap();
+        }
 
         let mut success = 0;
         unsafe { gl!(gl::GetProgramiv(id, gl::LINK_STATUS, &mut success)) }.unwrap();
@@ -283,12 +303,10 @@ impl<'a> Device<'a> {
                 _ => panic!("Format is not supported in vertex buffer"),
             };
 
-            if type_ == gl::UNSIGNED_INT {
-                unsafe {
+            unsafe {
+                if type_ == gl::UNSIGNED_INT {
                     gl!(gl::VertexArrayAttribIFormat(*vao, attrib, size, type_, 0)).unwrap();
-                }
-            } else {
-                unsafe {
+                } else {
                     gl!(gl::VertexArrayAttribFormat(
                         *vao, attrib, size, type_, normalized, 0
                     ))
@@ -347,7 +365,9 @@ impl<'a> Device<'a> {
                 vertices as _,
                 instances as _
             ))
-            .unwrap()
+            .unwrap();
+
+            gl!(gl::BindVertexArray(0)).unwrap();
         }
     }
 
@@ -377,6 +397,28 @@ pub struct Texture2D {
 }
 
 impl Texture2D {
+    pub fn write(&mut self, bytes: &[u8]) {
+        assert_eq!(
+            bytes.len(),
+            self.width * self.height * std::mem::size_of::<u8>() * 4
+        );
+
+        unsafe {
+            gl!(gl::TextureSubImage2D(
+                self.id,
+                0,
+                0,
+                0,
+                self.width as _,
+                self.height as _,
+                gl::RGBA,
+                gl::UNSIGNED_BYTE,
+                bytes.as_ptr() as *const _
+            ))
+            .unwrap()
+        }
+    }
+
     pub fn width(&self) -> usize {
         self.width
     }
@@ -402,20 +444,28 @@ pub struct BindProps<'a, T: BufferLayout, const R: bool, const W: bool> {
 pub struct Swapchain {
     _instance: Rc<InstanceShared>,
     window: Window,
-    framebuffers: Vec<Framebuffer>,
 }
 
 impl Swapchain {
     pub fn present(&mut self) {
         self.window.gl_swap_window();
     }
-
-    pub fn framebuffers(&self) -> &[Framebuffer] {
-        &self.framebuffers
-    }
 }
 
-pub struct Framebuffer(u32);
+pub struct Framebuffer {
+    pub id: u32,
+    texture: Texture2D,
+}
+
+impl Framebuffer {
+    fn texture(&self) -> &Texture2D {
+        &self.texture
+    }
+
+    fn texture_mut(&mut self) -> &mut Texture2D {
+        &mut self.texture
+    }
+}
 
 pub enum Format {
     R8G8B8A8,
@@ -448,6 +498,7 @@ pub unsafe trait BufferLayout: Sized {
             Format::Mat3 => 32,
             Format::Mat4 => 48,
             Format::U32 => 4,
+            Format::R8G8B8A8 => 1,
         };
 
         let size: usize = Self::LAYOUT.iter().map(format_to_size).sum();
@@ -472,6 +523,7 @@ pub unsafe trait BufferLayout: Sized {
             Format::Mat3 => 32,
             Format::Mat4 => 48,
             Format::U32 => 4,
+            Format::R8G8B8A8 => 1,
         };
 
         let size: usize = Self::LAYOUT[0..index + 1].iter().map(format_to_size).sum();

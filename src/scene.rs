@@ -75,6 +75,7 @@ impl_into_entity!(Light, Object);
 pub struct Scene {
     pub camera: Camera,
     pub entities: Vec<Entity>,
+    pub text: Vec<(UVec2, String)>,
     materials: Box<[Material; 256]>,
 }
 
@@ -83,6 +84,7 @@ impl Scene {
         Self {
             camera,
             entities: Vec::default(),
+            text: Vec::default(),
             materials: Box::new([Material::default(); 256]),
         }
     }
@@ -117,6 +119,7 @@ impl Scene {
         Self {
             camera,
             entities: terrain,
+            text: Vec::default(),
             materials,
         }
     }

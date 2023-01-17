@@ -16,13 +16,18 @@ impl Game {
     const SPEED: f32 = 100.0;
 
     pub fn new(scene: &mut Scene) -> Self {
+        scene
+            .text
+            .push((UVec2::new(200, 200), "Hello World".to_string()));
+
         Self { health: 100 }
     }
 
     pub fn run(&mut self, systems: &mut GameSystems, scene: &mut Scene) {
-        let GameSystems { keyboard, dt } = systems;
+        let keyboard = &mut systems.keyboard;
+        let dt = systems.dt;
+
         let Scene { camera, .. } = scene;
-        let dt = *dt;
 
         if keyboard.is_scancode_pressed(Scancode::W) {
             camera.translate(Vec3::new(0.0, 0.0, -Self::SPEED) * dt);
