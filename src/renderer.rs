@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::JoinHandle;
 use std::time::Instant;
@@ -13,6 +14,8 @@ struct Cache {
     matrices: Buffer<Mat4, false, true>,
     materials: Option<Buffer<Material>>,
     buffers: Vec<Buffer<Vec3, false, true>>,
+    font_face: FontFace,
+    font: Texture2D,
 }
 
 struct Profiler {
@@ -140,6 +143,9 @@ impl Renderer<'_> {
     const VERTEX_SHADER: &'static str = include_str!("./shaders/shader.vert");
     const PIXEL_SHADER: &'static str = include_str!("./shaders/shader.frag");
 
+    const TEXT_VERTEX_SHADER: &'static str = include_str!("./shaders/text.vert");
+    const TEXT_PIXEL_SHADER: &'static str = include_str!("./shaders/text.frag");
+
     #[rustfmt::skip]
     const VERTICES: [Vertex; 36] = [
         Vertex(Vec3::new(-0.5, -0.5, -0.5),  Vec3::new(0.0,  0.0, -1.0)),
@@ -197,6 +203,13 @@ impl Renderer<'_> {
         let vertices = device.new_buffer(BufferInit::Data(&Self::VERTICES));
         let matrices = device.new_buffer(BufferInit::Capacity(2));
 
+        let font_face = {
+            let bytes = include_bytes!("../assets/fonts/sans-serif/sans-serif.fnt");
+            Self::parse_fnt(bytes)
+        };
+
+        let font = device.new_texture_2d(font_face.width, font_face.height, Format::F32);
+
         Self {
             _instance,
             device,
@@ -207,6 +220,8 @@ impl Renderer<'_> {
                 matrices,
                 materials: None,
                 buffers: Vec::default(),
+                font_face,
+                font,
             },
             profiler: Profiler::new(profile),
         }
@@ -290,6 +305,150 @@ impl Renderer<'_> {
 
         device.draw_instanced(cache.vertices.len(), offsets.len());
     }
+
+    pub fn render_text(&mut self, text: &str, position: Vec2) {
+        let Self { device, .. } = self;
+
+        let shaders = {
+            let vs = device.new_shader(VertexStage, Self::TEXT_VERTEX_SHADER);
+            let ps = device.new_shader(PixelStage, Self::TEXT_PIXEL_SHADER);
+            device.new_shader_program(&vs, &ps)
+        };
+
+        let mut texture = u32::MAX;
+        unsafe { gl!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut texture)).unwrap() };
+
+        let mut framebuffer = u32::MAX;
+        unsafe { gl!(gl::CreateFramebuffers(1, &mut framebuffer)).unwrap() };
+
+        unsafe {
+            gl!(gl::NamedFramebufferTexture(
+                framebuffer,
+                gl::COLOR_ATTACHMENT0,
+                texture,
+                0
+            ))
+            .unwrap()
+        };
+    }
+
+    fn parse_fnt(bytes: &[u8]) -> FontFace {
+        let ident = |s: &str| {
+            s.chars()
+                .take_while(|c| c.is_alphabetic())
+                .collect::<String>()
+        };
+
+        let string = |s: &str| {
+            assert!(s.starts_with("\""));
+            s[1..].chars().take_while(|&c| c != '"').collect::<String>()
+        };
+
+        let kv = |s: &str| {
+            let key = ident(s);
+            assert_eq!(&s[key.len()..key.len() + 1], "=");
+            let value: String = s[key.len() + 1..]
+                .chars()
+                .take_while(|c| !c.is_whitespace())
+                .collect();
+
+            (key, value)
+        };
+
+        let mut width = None;
+        let mut height = None;
+        let mut line_height = None;
+        let mut base = None;
+
+        let mut glyphs = Vec::default();
+
+        for line in std::str::from_utf8(bytes).unwrap().lines() {
+            match line {
+                line if line.starts_with("info") => {}
+                line if line.starts_with("common") => {
+                    for (key, value) in line.split_whitespace().skip(1).map(kv) {
+                        match key.as_str() {
+                            "lineHeight" => line_height = value.parse().ok(),
+                            "base" => base = value.parse().ok(),
+                            "scaleW" => width = value.parse().ok(),
+                            "scaleH" => height = value.parse().ok(),
+                            _ => {}
+                        }
+                    }
+                }
+                line if line.starts_with("chars") => {
+                    let (_, value) = line
+                        .split_whitespace()
+                        .skip(1)
+                        .map(kv)
+                        .find(|(key, _)| key == "count")
+                        .unwrap();
+
+                    glyphs.reserve_exact(value.parse().unwrap());
+                }
+                line if line.starts_with("char") => {
+                    let mut id = None;
+                    let mut x = None;
+                    let mut y = None;
+                    let mut width = None;
+                    let mut height = None;
+                    let mut xoffset = None;
+                    let mut yoffset = None;
+
+                    for (key, value) in line.split_whitespace().skip(1).map(kv) {
+                        match key.as_str() {
+                            "id" => {
+                                id = value
+                                    .parse::<u32>()
+                                    .map(|c| char::from_u32(c).unwrap())
+                                    .ok()
+                            }
+                            "x" => x = value.parse::<u32>().ok(),
+                            "y" => y = value.parse::<u32>().ok(),
+                            "width" => width = value.parse::<u32>().ok(),
+                            "height" => height = value.parse::<u32>().ok(),
+                            "xoffset" => xoffset = value.parse::<i32>().ok(),
+                            "yoffset" => yoffset = value.parse::<i32>().ok(),
+                            _ => {}
+                        }
+                    }
+
+                    glyphs.push(FontGlyph {
+                        id: id.unwrap(),
+                        position: uvec2(x.unwrap(), y.unwrap()),
+                        size: uvec2(width.unwrap(), height.unwrap()),
+                        offset: ivec2(xoffset.unwrap(), yoffset.unwrap()),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        FontFace {
+            width: width.unwrap(),
+            height: height.unwrap(),
+            line_height: line_height.unwrap(),
+            base: base.unwrap(),
+            glyphs,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct FontGlyph {
+    id: char,
+    position: UVec2,
+    size: UVec2,
+    offset: IVec2,
+}
+
+#[derive(Debug)]
+struct FontFace {
+    width: usize,
+    height: usize,
+    line_height: u32,
+    base: u32,
+    glyphs: Vec<FontGlyph>,
 }
 
 unsafe impl BufferLayout for Material {

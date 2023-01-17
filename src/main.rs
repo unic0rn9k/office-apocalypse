@@ -87,16 +87,18 @@ fn main() -> Result<(), String> {
             }
         }
 
-        if let Some(frametime) = renderer.run(&mut scene) {
-            dt = (frametime / 1000.0) as f32;
-        }
+        renderer.render_text("HELLO", Vec2::new(0.0, 0.0));
 
-        let mut systems = GameSystems {
-            keyboard: event_pump.keyboard_state(),
-            dt,
-        };
+        // if let Some(frametime) = renderer.run(&mut scene) {
+        //     dt = (frametime / 1000.0) as f32;
+        // }
 
-        game.run(&mut systems, &mut scene);
+        // let mut systems = GameSystems {
+        //     keyboard: event_pump.keyboard_state(),
+        //     dt,
+        // };
+
+        // game.run(&mut systems, &mut scene);
     }
 
     Ok(())

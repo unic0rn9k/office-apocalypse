@@ -7,4 +7,5 @@ edition = "2021"
 byteorder = "1.4.3"
 gl = "0.14.0"
 glam = "0.22.0"
+image = { version = "0.24.5", default-features = false, features = ["png"] }
 sdl2 = { version = "0.35.2", features = ["bundled"] }

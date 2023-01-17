@@ -164,6 +164,29 @@ impl<'a> Device<'a> {
         }
     }
 
+    pub fn new_texture_2d(&self, width: usize, height: usize, format: Format) -> Texture2D {
+        let mut id = u32::MAX;
+        unsafe {
+            gl!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut id)).unwrap();
+
+            gl!(gl::TextureStorage2D(
+                id,
+                1,
+                gl::RGBA8,
+                width as _,
+                height as _
+            ))
+            .unwrap();
+        }
+
+        Texture2D {
+            id,
+            width,
+            height,
+            _device: Rc::clone(&self.0),
+        }
+    }
+
     pub fn new_shader<S: Stage>(&self, _stage: S, src: &str) -> Shader<S> {
         let stage = match S::STAGE_TYPE {
             StageType::Vertex => gl::VERTEX_SHADER,
@@ -257,6 +280,7 @@ impl<'a> Device<'a> {
                 Format::Mat3 => (12, gl::FLOAT, gl::FALSE),
                 Format::Mat4 => (16, gl::FLOAT, gl::FALSE),
                 Format::U32 => (4, gl::UNSIGNED_INT, gl::FALSE),
+                _ => panic!("Format is not supported in vertex buffer"),
             };
 
             if type_ == gl::UNSIGNED_INT {
@@ -345,6 +369,29 @@ impl<'a> Device<'a> {
     }
 }
 
+pub struct Texture2D {
+    pub id: u32,
+    width: usize,
+    height: usize,
+    _device: Rc<RefCell<DeviceShared>>,
+}
+
+impl Texture2D {
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+}
+
+impl Drop for Texture2D {
+    fn drop(&mut self) {
+        unsafe { gl!(gl::DeleteTextures(1, &mut self.id)).unwrap() };
+    }
+}
+
 pub struct BindProps<'a, T: BufferLayout, const R: bool, const W: bool> {
     pub binding: usize,
     pub attributes: &'a [usize],
@@ -371,6 +418,7 @@ impl Swapchain {
 pub struct Framebuffer(u32);
 
 pub enum Format {
+    R8G8B8A8,
     F32,
     Vec2,
     Vec3,
