@@ -13,12 +13,10 @@ pub struct Game {
 }
 
 impl Game {
-    const SPEED: f32 = 100.0;
+    const SPEED: f32 = 10.0;
 
     pub fn new(scene: &mut Scene) -> Self {
-        scene
-            .text
-            .push((UVec2::new(200, 200), "Hello World".to_string()));
+        scene.text.push((UVec2::new(200, 200), "W".to_string()));
 
         Self { health: 100 }
     }

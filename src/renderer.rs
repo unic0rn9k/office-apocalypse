@@ -9,13 +9,6 @@ use sdl2::video::*;
 use crate::rhi::*;
 use crate::scene::*;
 
-struct Cache {
-    vertices: Buffer<Vertex>,
-    matrices: Buffer<Mat4, false, true>,
-    materials: Option<Buffer<Material>>,
-    buffers: Vec<Buffer<Vec3, false, true>>,
-}
-
 struct Profiler {
     task: Option<&'static str>,
     cpu_profiler: (Option<Instant>, Option<Instant>),
@@ -147,23 +140,12 @@ struct FontFace {
 
 struct TextRenderer<'a> {
     device: Device<'a>,
-    vertices: Buffer<Vec3, false, false>,
     shaders: ShaderProgram,
-    font: FontFace,
+    font_face: FontFace,
     atlas: Texture2D,
 }
 
 impl<'a> TextRenderer<'a> {
-    #[rustfmt::skip]
-    const VERTICES: [Vec3; 6] = [
-        Vec3::new( 0.5,  0.5, 0.0),
-        Vec3::new( 0.5, -0.5, 0.0),
-        Vec3::new(-0.5,  0.5, 0.0),
-        Vec3::new( 0.5, -0.5, 0.0),
-        Vec3::new(-0.5, -0.5, 0.0),
-        Vec3::new(-0.5,  0.5, 0.0),
-    ];
-
     const VERTEX_SHADER: &'static str = include_str!("./shaders/text.vert");
     const PIXEL_SHADER: &'static str = include_str!("./shaders/text.frag");
 
@@ -171,35 +153,114 @@ impl<'a> TextRenderer<'a> {
     const FONT_IMAGE: &'static [u8] = include_bytes!("../assets/fonts/sans-serif/sans-serif.png");
 
     pub fn new(device: Device<'a>) -> Self {
-        let vertices = device.new_buffer(BufferInit::Data(&Self::VERTICES));
-
         let shaders = {
             let vs = device.new_shader(VertexStage, Self::VERTEX_SHADER);
             let ps = device.new_shader(PixelStage, Self::PIXEL_SHADER);
             device.new_shader_program(&vs, &ps)
         };
 
-        let font = Self::parse_fnt(Self::FONT_FACE);
-        let mut atlas = device.new_texture_2d(font.width, font.height, Format::R8G8B8A8);
-        {
-            let image = image::load_from_memory(Self::FONT_IMAGE).unwrap();
-            atlas.write(image.as_rgba8().unwrap().as_bytes());
-        }
+        let font_face = Self::parse_fnt(Self::FONT_FACE);
+        let mut atlas = device.new_texture_2d(font_face.width, font_face.height, Format::R8G8B8A8);
+        let font_image = image::load_from_memory(Self::FONT_IMAGE).unwrap();
+        atlas.write(font_image.flipv().as_rgba8().as_ref().unwrap());
 
         Self {
             device,
-            vertices,
             shaders,
-            font,
+            font_face,
             atlas,
         }
     }
 
-    pub fn render(&mut self, scene: &Scene, framebuffer: Option<Framebuffer>) -> Framebuffer {
-        let Scene { text, .. } = scene;
-        let (position, string) = text[0].clone();
+    pub fn render(&mut self, scene: &Scene, framebuffer: &mut Framebuffer) {
+        let Self { device, .. } = self;
 
-        todo!()
+        let (position, string) = &scene.text[0];
+        let position = vec2(position.x as _, position.y as _);
+
+        let mut vertices: Vec<[Vec2; 2]> = Vec::with_capacity(string.chars().count());
+        for c in string.chars() {
+            let glyph = &self
+                .font_face
+                .glyphs
+                .iter()
+                .find(|glyph| glyph.id == c)
+                .expect("font face doesn't contain character");
+
+            let glyph_size = vec2(glyph.size.x as _, glyph.size.y as _);
+            let glyph_width = Vec2::new(glyph.size.x as _, 0.0);
+            let glyph_height = Vec2::new(0.0, glyph.size.y as _);
+            let glyph_position = vec2(glyph.position.x as _, glyph.position.y as _);
+
+            let face_width = self.font_face.width as _;
+            let face_height = self.font_face.height as _;
+            let face_size = vec2(face_width, face_height);
+
+            // opengl texture coordinates are (0, 0) in the lower left corner.
+            let to_opengl = |texcoord: Vec2| {
+                let x = (texcoord.x) / face_width;
+                let y = (face_height - texcoord.y) / face_height;
+                vec2(x, y)
+            };
+
+            // We need to push 6 vertices for each character because a character consists of
+            // a single quad.
+            vertices.extend_from_slice(&[
+                // top left -> top right -> bottom left
+                [position, to_opengl(glyph_position)],
+                [
+                    position + glyph_width,
+                    to_opengl(glyph_position + glyph_width),
+                ],
+                [
+                    position + glyph_height,
+                    to_opengl(glyph_position + glyph_height),
+                ],
+                // top right -> bottom right -> bottom left
+                [
+                    position + glyph_width,
+                    to_opengl(glyph_position + glyph_width),
+                ],
+                [
+                    position + glyph_size,
+                    to_opengl(glyph_position + glyph_size),
+                ],
+                [
+                    position + glyph_height,
+                    to_opengl(glyph_position + glyph_height),
+                ],
+            ]);
+        }
+
+        println!("{vertices:?}");
+
+        let vertex_buffer: Buffer<_, false, false> = device.new_buffer(BufferInit::Data(&vertices));
+
+        unsafe {
+            gl::Enable(gl::BLEND);
+            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        }
+
+        device.bind_vertex_buffer(BindProps {
+            binding: 0,
+            attributes: &[0, 1],
+            buffer: &vertex_buffer,
+            instanced: false,
+        });
+
+        device.bind_shader_program(&self.shaders);
+
+        let projection = Mat4::orthographic_rh_gl(0.0, 640.0, 0.0, 480.0, 0.0, 1.0);
+        let matrix_buffer: Buffer<_, false, false> =
+            device.new_buffer(BufferInit::Data(&[projection]));
+
+        unsafe {
+            gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 0, matrix_buffer.id)).unwrap();
+            gl!(gl::BindTexture(gl::TEXTURE_2D, self.atlas.id)).unwrap();
+        }
+
+        // device.bind_framebuffer(framebuffer);
+        device.draw(vertices.len());
     }
 
     pub fn resize(&mut self) {}
@@ -301,10 +362,19 @@ impl<'a> TextRenderer<'a> {
     }
 }
 
+struct Cache {
+    vertices: Buffer<Vertex>,
+    matrices: Buffer<Mat4, false, true>,
+    materials: Option<Buffer<Material>>,
+    buffers: Vec<Buffer<Vec3, false, true>>,
+}
+
 pub struct Renderer<'a> {
+    window_size: (u32, u32),
     _instance: Instance,
     device: Device<'a>,
     swapchain: Swapchain,
+    framebuffer: Framebuffer,
     shaders: ShaderProgram,
     cache: Cache,
     text_renderer: TextRenderer<'a>,
@@ -365,6 +435,11 @@ impl Renderer<'_> {
         let device = _instance.new_device();
         let swapchain = _instance.new_swapchain(vsync);
 
+        let window_size = window.size();
+        let frame = device.new_texture_2d(window_size.0 as _, window_size.1 as _, Format::R8G8B8A8);
+        let depth = device.new_texture_2d(window_size.0 as _, window_size.1 as _, Format::D24);
+        let framebuffer = device.new_framebuffer(frame, Some(depth));
+
         let vertex_shader = device.new_shader(VertexStage, Self::VERTEX_SHADER);
         let pixel_shader = device.new_shader(PixelStage, Self::PIXEL_SHADER);
         let shaders = device.new_shader_program(&vertex_shader, &pixel_shader);
@@ -374,9 +449,11 @@ impl Renderer<'_> {
 
         Self {
             _instance,
+            window_size,
             text_renderer: TextRenderer::new(device.clone()),
             device,
             swapchain,
+            framebuffer,
             shaders,
             cache: Cache {
                 vertices,
@@ -390,11 +467,38 @@ impl Renderer<'_> {
 
     /// Renders a single frame
     pub fn run(&mut self, scene: &mut Scene) -> Option<f64> {
-        let Self { device, cache, .. } = self;
-
         self.profiler.begin_profile("Renderer");
 
-        unsafe { gl!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT)) }.unwrap();
+        self.device
+            .default_framebuffer()
+            .clear(Vec4::new(0.0, 0.0, 0.0, 1.0), true);
+
+        // self.framebuffer.clear(Vec4::new(0.0, 0.0, 0.0, 1.0), true);
+
+        // self.geometry_pass(scene);
+
+        self.text_renderer.render(scene, &mut self.framebuffer);
+        // self.blit();
+        self.swapchain.present();
+
+        let measurement = self.profiler.end_profile("Renderer");
+        measurement.map(|(cpu, gpu)| cpu + gpu)
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        let Self { device, .. } = self;
+
+        unsafe { gl!(gl::Viewport(0, 0, width as _, height as _)) }.unwrap();
+
+        self.window_size = (width, height);
+
+        let frame = device.new_texture_2d(width as _, height as _, Format::R8G8B8A8);
+        let depth = device.new_texture_2d(width as _, height as _, Format::D24);
+        self.framebuffer = device.new_framebuffer(frame, Some(depth));
+    }
+
+    fn geometry_pass(&mut self, scene: &mut Scene) {
+        let Self { device, cache, .. } = self;
 
         if cache.materials.is_none() {
             cache.materials = Some(device.new_buffer(BufferInit::Data(scene.materials())));
@@ -406,15 +510,6 @@ impl Renderer<'_> {
         for chunk in scene.terrain() {
             self.render_chunk(view_projection, chunk);
         }
-
-        self.swapchain.present();
-
-        let measurement = self.profiler.end_profile("Renderer");
-        measurement.map(|(cpu, gpu)| cpu + gpu)
-    }
-
-    pub fn resize(&mut self, width: u32, height: u32) {
-        unsafe { gl!(gl::Viewport(0, 0, width as _, height as _)) }.unwrap();
     }
 
     fn render_chunk(&mut self, view_projection: Mat4, chunk: &Chunk) {
@@ -464,7 +559,72 @@ impl Renderer<'_> {
             gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 1, materials.id)).unwrap();
         }
 
+        device.bind_framebuffer(&self.framebuffer);
         device.draw_instanced(cache.vertices.len(), offsets.len());
+    }
+
+    fn postprocess_pass(&mut self) {}
+
+    /// This function blits (copies) all values in `self.framebuffer` to the
+    /// default framebuffer
+    fn blit(&mut self) {
+        unsafe {
+            gl!(gl::BlitNamedFramebuffer(
+                self.framebuffer.id,
+                0,
+                0,
+                0,
+                self.window_size.0 as _,
+                self.window_size.1 as _,
+                0,
+                0,
+                self.window_size.0 as _,
+                self.window_size.1 as _,
+                gl::COLOR_BUFFER_BIT,
+                gl::NEAREST,
+            ))
+        }
+        .unwrap();
+    }
+}
+
+unsafe impl<const N: usize> BufferLayout for [UVec2; N] {
+    const LAYOUT: &'static [Format] = &[Format::UVec2; N];
+    const PADDING: &'static [usize] = &[0; N];
+    const COPYABLE: bool = true;
+
+    fn to_bytes(items: &[Self]) -> Vec<u8> {
+        unimplemented!()
+    }
+}
+
+unsafe impl BufferLayout for IVec2 {
+    const LAYOUT: &'static [Format] = &[Format::IVec2];
+    const PADDING: &'static [usize] = &[0];
+    const COPYABLE: bool = true;
+
+    fn to_bytes(items: &[Self]) -> Vec<u8> {
+        unimplemented!()
+    }
+}
+
+unsafe impl<const N: usize> BufferLayout for [IVec2; N] {
+    const LAYOUT: &'static [Format] = &[Format::IVec2; N];
+    const PADDING: &'static [usize] = &[0; N];
+    const COPYABLE: bool = true;
+
+    fn to_bytes(items: &[Self]) -> Vec<u8> {
+        unimplemented!()
+    }
+}
+
+unsafe impl BufferLayout for [Vec2; 2] {
+    const LAYOUT: &'static [Format] = &[Format::Vec2, Format::Vec2];
+    const PADDING: &'static [usize] = &[0, 0];
+    const COPYABLE: bool = true;
+
+    fn to_bytes(_items: &[Self]) -> Vec<u8> {
+        unimplemented!()
     }
 }
 

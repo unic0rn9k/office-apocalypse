@@ -4,7 +4,6 @@ use std::marker::*;
 use std::rc::*;
 
 use glam::{Mat3, Mat4, Vec2, Vec3, Vec4};
-use image::Frame;
 use sdl2::video::*;
 
 macro_rules! gl {
@@ -107,6 +106,17 @@ struct DeviceShared {
 pub struct Device<'a>(Rc<RefCell<DeviceShared>>, PhantomData<&'a ()>);
 
 impl<'a> Device<'a> {
+    pub fn default_framebuffer(&self) -> Framebuffer {
+        let mut device = self.0.borrow_mut();
+
+        Framebuffer {
+            id: 0,
+            texture: None,
+            depth: None,
+            default: true,
+        }
+    }
+
     pub fn new_buffer<T, const R: bool, const W: bool>(&self, b: BufferInit<T>) -> Buffer<T, R, W>
     where
         T: BufferLayout,
@@ -161,17 +171,16 @@ impl<'a> Device<'a> {
 
     pub fn new_texture_2d(&self, width: usize, height: usize, format: Format) -> Texture2D {
         let mut id = u32::MAX;
+
+        let format = match format {
+            Format::R8G8B8A8 => gl::RGBA8,
+            Format::D24 => gl::DEPTH_COMPONENT24,
+            _ => panic!("Textures can only be created with texture compatible formats!"),
+        };
+
         unsafe {
             gl!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut id)).unwrap();
-
-            gl!(gl::TextureStorage2D(
-                id,
-                1,
-                gl::RGBA8,
-                width as _,
-                height as _
-            ))
-            .unwrap();
+            gl!(gl::TextureStorage2D(id, 1, format, width as _, height as _)).unwrap();
         }
 
         Texture2D {
@@ -182,7 +191,7 @@ impl<'a> Device<'a> {
         }
     }
 
-    pub fn new_framebuffer(&self, texture: Texture2D) -> Framebuffer {
+    pub fn new_framebuffer(&self, texture: Texture2D, depth: Option<Texture2D>) -> Framebuffer {
         let mut id = u32::MAX;
         unsafe { gl!(gl::CreateFramebuffers(1, &mut id)).unwrap() };
 
@@ -196,13 +205,30 @@ impl<'a> Device<'a> {
             .unwrap()
         };
 
+        if let Some(depth) = &depth {
+            unsafe {
+                gl!(gl::NamedFramebufferTexture(
+                    id,
+                    gl::DEPTH_ATTACHMENT,
+                    depth.id,
+                    0
+                ))
+            }
+            .unwrap();
+        }
+
         unsafe {
             if gl::CheckNamedFramebufferStatus(id, gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
                 panic!("Failed to create framebuffer")
             }
         }
 
-        Framebuffer { id, texture }
+        Framebuffer {
+            id,
+            texture: Some(texture),
+            depth,
+            default: false,
+        }
     }
 
     pub fn new_shader<S: Stage>(&self, _stage: S, src: &str) -> Shader<S> {
@@ -295,6 +321,8 @@ impl<'a> Device<'a> {
             let (size, type_, normalized) = match format {
                 Format::F32 => (1, gl::FLOAT, gl::FALSE),
                 Format::Vec2 => (2, gl::FLOAT, gl::FALSE),
+                Format::UVec2 => (2, gl::UNSIGNED_INT, gl::FALSE),
+                Format::IVec2 => (2, gl::INT, gl::FALSE),
                 Format::Vec3 => (3, gl::FLOAT, gl::FALSE),
                 Format::Vec4 => (4, gl::FLOAT, gl::FALSE),
                 Format::Mat3 => (12, gl::FLOAT, gl::FALSE),
@@ -304,7 +332,8 @@ impl<'a> Device<'a> {
             };
 
             unsafe {
-                if type_ == gl::UNSIGNED_INT {
+                if [gl::UNSIGNED_INT, gl::INT].contains(&type_) {
+                    println!("{type_}");
                     gl!(gl::VertexArrayAttribIFormat(*vao, attrib, size, type_, 0)).unwrap();
                 } else {
                     gl!(gl::VertexArrayAttribFormat(
@@ -330,6 +359,16 @@ impl<'a> Device<'a> {
     pub fn bind_shader_program(&self, program: &'a ShaderProgram) {
         let _device = self.0.borrow();
         unsafe { gl!(gl::UseProgram(program.id)) }.unwrap();
+    }
+
+    pub fn bind_framebuffer(&self, framebuffer: &'a Framebuffer) {
+        let _device = self.0.borrow();
+        unsafe { gl!(gl::BindFramebuffer(gl::FRAMEBUFFER, framebuffer.id)) }.unwrap();
+    }
+
+    pub fn unbind_framebuffer(&mut self) {
+        let _device = self.0.borrow_mut();
+        unsafe { gl!(gl::BindFramebuffer(gl::FRAMEBUFFER, 0)) }.unwrap();
     }
 
     pub fn draw(&self, vertices: usize) {
@@ -454,23 +493,85 @@ impl Swapchain {
 
 pub struct Framebuffer {
     pub id: u32,
-    texture: Texture2D,
+    texture: Option<Texture2D>,
+    depth: Option<Texture2D>,
+    default: bool,
 }
 
 impl Framebuffer {
-    fn texture(&self) -> &Texture2D {
-        &self.texture
+    pub fn clear(&mut self, color: Vec4, depth: bool) {
+        unsafe { gl::ClearNamedFramebufferfv(self.id, gl::COLOR, 0, color.as_ref().as_ptr()) }
+
+        if depth {
+            let result = unsafe {
+                gl!(gl::ClearNamedFramebufferfv(
+                    self.id,
+                    gl::DEPTH,
+                    0,
+                    [1.0].as_ptr()
+                ))
+            };
+
+            result.unwrap();
+        }
     }
 
-    fn texture_mut(&mut self) -> &mut Texture2D {
-        &mut self.texture
+    pub fn color(&self) -> &Texture2D {
+        assert!(
+            self.id != 0,
+            "Tried to access color attachment for default framebuffer"
+        );
+
+        self.texture.as_ref().unwrap()
+    }
+
+    pub fn color_mut(&mut self) -> &mut Texture2D {
+        assert!(
+            self.id != 0,
+            "Tried to access color attachment for default framebuffer"
+        );
+
+        self.texture.as_mut().unwrap()
+    }
+
+    pub fn depth(&self) -> &Texture2D {
+        assert!(
+            self.id != 0,
+            "Tried to access color attachment for default framebuffer"
+        );
+
+        todo!()
+    }
+
+    pub fn depth_mut(&self) -> &mut Texture2D {
+        assert!(
+            self.id != 0,
+            "Tried to access color attachment for default framebuffer"
+        );
+
+        todo!()
     }
 }
 
+impl Drop for Framebuffer {
+    fn drop(&mut self) {
+        if !self.default {
+            let _ = unsafe { gl!(gl::DeleteFramebuffers(1, &self.id)) };
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     R8G8B8A8,
+    D24,
+
     F32,
+
     Vec2,
+    UVec2,
+    IVec2,
+
     Vec3,
     Vec4,
     Mat3,
@@ -492,13 +593,18 @@ pub unsafe trait BufferLayout: Sized {
     fn stride() -> usize {
         let format_to_size = |format: &Format| match format {
             Format::F32 => 4,
+
             Format::Vec2 => 8,
+            Format::UVec2 => 8,
+            Format::IVec2 => 8,
+
             Format::Vec3 => 12,
             Format::Vec4 => 16,
             Format::Mat3 => 32,
             Format::Mat4 => 48,
             Format::U32 => 4,
-            Format::R8G8B8A8 => 1,
+            Format::R8G8B8A8 => unimplemented!(),
+            Format::D24 => unimplemented!(),
         };
 
         let size: usize = Self::LAYOUT.iter().map(format_to_size).sum();
@@ -517,13 +623,18 @@ pub unsafe trait BufferLayout: Sized {
     fn offset(index: usize) -> usize {
         let format_to_size = |format: &Format| match format {
             Format::F32 => 4,
+
             Format::Vec2 => 8,
+            Format::UVec2 => 8,
+            Format::IVec2 => 8,
+
             Format::Vec3 => 12,
             Format::Vec4 => 16,
             Format::Mat3 => 32,
             Format::Mat4 => 48,
             Format::U32 => 4,
-            Format::R8G8B8A8 => 1,
+            Format::R8G8B8A8 => unimplemented!(),
+            Format::D24 => unimplemented!(),
         };
 
         let size: usize = Self::LAYOUT[0..index + 1].iter().map(format_to_size).sum();

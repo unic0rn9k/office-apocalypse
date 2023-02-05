@@ -88,7 +88,7 @@ fn main() -> Result<(), String> {
         }
 
         if let Some(time) = renderer.run(&mut scene) {
-            dt = (time / 1000.0) as _
+            dt = (time / 1000.0) as _;
         }
 
         let mut systems = GameSystems {

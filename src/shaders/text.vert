@@ -1,11 +1,10 @@
 #version 460 core
 
 layout(location = 0) in vec2 a_position;
-layout(location = 1) in vec2 a_texcoord;  // instanced
+layout(location = 1) in vec2 a_texcoord;
 
 layout(std140) uniform Matrices {
-  mat4 projection;
-  //
+  mat4 projection;  // orthographic projection
 }
 matrices;
 
