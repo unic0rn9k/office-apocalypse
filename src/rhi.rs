@@ -318,6 +318,8 @@ impl<'a> Device<'a> {
                 gl!(gl::VertexArrayAttribBinding(*vao, attrib, binding)).unwrap();
             }
 
+            let offset = T::offset(i);
+
             let (size, type_, normalized) = match format {
                 Format::F32 => (1, gl::FLOAT, gl::FALSE),
                 Format::Vec2 => (2, gl::FLOAT, gl::FALSE),
@@ -333,11 +335,22 @@ impl<'a> Device<'a> {
 
             unsafe {
                 if [gl::UNSIGNED_INT, gl::INT].contains(&type_) {
-                    println!("{type_}");
-                    gl!(gl::VertexArrayAttribIFormat(*vao, attrib, size, type_, 0)).unwrap();
+                    gl!(gl::VertexArrayAttribIFormat(
+                        *vao,
+                        attrib,
+                        size,
+                        type_,
+                        offset as _
+                    ))
+                    .unwrap();
                 } else {
                     gl!(gl::VertexArrayAttribFormat(
-                        *vao, attrib, size, type_, normalized, 0
+                        *vao,
+                        attrib,
+                        size,
+                        type_,
+                        normalized,
+                        offset as _
                     ))
                     .unwrap();
                 }
@@ -361,7 +374,7 @@ impl<'a> Device<'a> {
         unsafe { gl!(gl::UseProgram(program.id)) }.unwrap();
     }
 
-    pub fn bind_framebuffer(&self, framebuffer: &'a Framebuffer) {
+    pub fn bind_framebuffer(&self, framebuffer: &'a mut Framebuffer) {
         let _device = self.0.borrow();
         unsafe { gl!(gl::BindFramebuffer(gl::FRAMEBUFFER, framebuffer.id)) }.unwrap();
     }
@@ -425,6 +438,49 @@ impl<'a> Device<'a> {
             ))
             .unwrap()
         }
+    }
+
+    pub fn blit(&self, src: &Framebuffer, dst: &mut Framebuffer, depth: bool) {
+        let _device = self.0.borrow();
+
+        // If `src` is the default framebuffer we must query the size of the viewport
+        // using glGetIntegerV. The same holds true for `dst`.
+        let [src_width, src_height] = if let Some(texture) = &src.texture {
+            [texture.width as _, texture.height as _]
+        } else {
+            let mut buf = [0, 0, 0, 0];
+            unsafe { gl!(gl::GetIntegerv(gl::VIEWPORT, buf.as_mut_ptr())) }.unwrap();
+            [buf[2], buf[3]]
+        };
+
+        let [dst_width, dst_height] = if let Some(texture) = &dst.texture {
+            [texture.width as _, texture.height as _]
+        } else {
+            let mut buf = [0, 0, 0, 0];
+            unsafe { gl!(gl::GetIntegerv(gl::VIEWPORT, buf.as_mut_ptr())) }.unwrap();
+            [buf[2], buf[3]]
+        };
+
+        assert!(src_width <= dst_width);
+        assert!(src_height <= dst_height);
+
+        unsafe {
+            gl!(gl::BlitNamedFramebuffer(
+                src.id,
+                dst.id,
+                0,
+                0,
+                src_width,
+                src_height,
+                0,
+                0,
+                dst_height,
+                dst_width,
+                gl::COLOR_BUFFER_BIT | if depth { gl::DEPTH_BUFFER_BIT } else { 0 },
+                gl::LINEAR
+            ))
+        }
+        .unwrap();
     }
 }
 
@@ -593,6 +649,7 @@ pub unsafe trait BufferLayout: Sized {
     fn stride() -> usize {
         let format_to_size = |format: &Format| match format {
             Format::F32 => 4,
+            Format::U32 => 4,
 
             Format::Vec2 => 8,
             Format::UVec2 => 8,
@@ -602,7 +659,7 @@ pub unsafe trait BufferLayout: Sized {
             Format::Vec4 => 16,
             Format::Mat3 => 32,
             Format::Mat4 => 48,
-            Format::U32 => 4,
+
             Format::R8G8B8A8 => unimplemented!(),
             Format::D24 => unimplemented!(),
         };
@@ -615,14 +672,17 @@ pub unsafe trait BufferLayout: Sized {
         Self::PADDING.iter().sum()
     }
 
-    /// Computes the offset between elements for the attribute located at
-    /// `index` in bytes
-    ///
-    /// Includes the size of the padding up to `index`, but not after.
+    /// Computes the offset from the start of the buffer to the attribute
+    /// located at `index`.
     // TODO(Bech): Probably not working...
     fn offset(index: usize) -> usize {
+        if index == 0 {
+            return 0;
+        }
+
         let format_to_size = |format: &Format| match format {
             Format::F32 => 4,
+            Format::U32 => 4,
 
             Format::Vec2 => 8,
             Format::UVec2 => 8,
@@ -632,14 +692,13 @@ pub unsafe trait BufferLayout: Sized {
             Format::Vec4 => 16,
             Format::Mat3 => 32,
             Format::Mat4 => 48,
-            Format::U32 => 4,
             Format::R8G8B8A8 => unimplemented!(),
             Format::D24 => unimplemented!(),
         };
 
-        let size: usize = Self::LAYOUT[0..index + 1].iter().map(format_to_size).sum();
+        let size: usize = Self::LAYOUT[0..index].iter().map(format_to_size).sum();
         let padding: usize = Self::PADDING[0..index].iter().sum();
-        Self::stride() - size + padding
+        size + padding
     }
 
     // TODO: Refactor to Box<[]> avoid heap allocations yes yes

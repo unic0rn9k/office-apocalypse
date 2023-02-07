@@ -48,7 +48,7 @@ fn main() -> Result<(), String> {
     let mut event_pump = sdl.event_pump()?;
 
     let mut window = setup_window(&video_subsystem);
-    let mut renderer = Renderer::new(&window, true, false);
+    let mut renderer = Renderer::new(&window, false);
 
     let camera = Camera::new(Vec3::new(0.0, 0.0, -2.0), ASPECT_RATIO);
     let mut scene = Scene::open("./assets/gun.vox", camera);
@@ -61,7 +61,7 @@ fn main() -> Result<(), String> {
             match event {
                 Event::Window { win_event, .. } => match win_event {
                     WindowEvent::SizeChanged(width, height) => {
-                        renderer.resize(width as u32, height as u32);
+                        renderer.resize(uvec2(width as _, height as _));
                         scene.camera.resize(width as f32, height as f32);
                     }
                     WindowEvent::Close => break 'running,
@@ -87,7 +87,7 @@ fn main() -> Result<(), String> {
             }
         }
 
-        if let Some(time) = renderer.run(&mut scene) {
+        if let Some(time) = renderer.render(&mut scene) {
             dt = (time / 1000.0) as _;
         }
 

@@ -9,118 +9,6 @@ use sdl2::video::*;
 use crate::rhi::*;
 use crate::scene::*;
 
-struct Profiler {
-    task: Option<&'static str>,
-    cpu_profiler: (Option<Instant>, Option<Instant>),
-    gpu_profiler: (u32, u32),
-    sender: Option<Sender<(&'static str, f64, f64)>>,
-    thread: Option<JoinHandle<()>>,
-}
-
-impl Profiler {
-    pub fn new(print: bool) -> Self {
-        let cpu_profiler = (None, None);
-
-        let gpu_profiler = unsafe {
-            let mut queries = [u32::MAX, u32::MAX];
-            gl!(gl::CreateQueries(gl::TIMESTAMP, 2, queries.as_mut_ptr())).unwrap();
-            (queries[0], queries[1])
-        };
-
-        let (sender, thread) = if print {
-            let (sender, receiver) = channel();
-            let thread = std::thread::spawn(move || {
-                while let Ok((task, cpu_time, gpu_time)) = receiver.recv() {
-                    println!("Task {task}:");
-                    println!("    CPU: {cpu_time}ms");
-                    println!("    GPU: {gpu_time}ms");
-                }
-            });
-
-            (Some(sender), Some(thread))
-        } else {
-            (None, None)
-        };
-
-        Self {
-            task: None,
-            cpu_profiler,
-            gpu_profiler,
-            sender,
-            thread,
-        }
-    }
-
-    pub fn begin_profile(&mut self, task: &'static str) {
-        let _ = self.task.insert(task);
-        let (cpu_start, _) = &mut self.cpu_profiler;
-        let (gpu_start, _) = &mut self.gpu_profiler;
-
-        if cpu_start.is_none() {
-            let _ = cpu_start.insert(Instant::now());
-
-            unsafe { gl!(gl::QueryCounter(*gpu_start, gl::TIMESTAMP)).unwrap() };
-        }
-    }
-
-    pub fn end_profile(&mut self, task: &'static str) -> Option<(f64, f64)> {
-        const RESULT: gl::types::GLenum = gl::QUERY_RESULT;
-        const AVAILABLE: gl::types::GLenum = gl::QUERY_RESULT_AVAILABLE;
-
-        let (cpu_start, cpu_end) = &mut self.cpu_profiler;
-        let (gpu_start, gpu_end) = &mut self.gpu_profiler;
-
-        if cpu_end.is_none() {
-            let _ = cpu_end.insert(Instant::now());
-            unsafe { gl!(gl::QueryCounter(*gpu_end, gl::TIMESTAMP)).unwrap() };
-        }
-
-        let mut completed = gl::FALSE as _;
-        unsafe { gl!(gl::GetQueryObjectiv(*gpu_end, AVAILABLE, &mut completed)).unwrap() };
-        if completed as u8 == gl::TRUE {
-            let gpu_time = {
-                let mut start = 0;
-                unsafe { gl!(gl::GetQueryObjectui64v(*gpu_start, RESULT, &mut start)).unwrap() };
-
-                let mut end = 0;
-                unsafe { gl!(gl::GetQueryObjectui64v(*gpu_end, RESULT, &mut end)).unwrap() };
-
-                (end - start) as f64 / 1_000_000.0
-            };
-
-            let cpu_time = {
-                let start = cpu_start.expect("Measurement hasn't been started yet");
-                let end = cpu_end.unwrap();
-                end.duration_since(start).as_secs_f64() * 1000.0
-            };
-
-            if let Some(sender) = &self.sender {
-                sender.send((task, cpu_time, gpu_time)).unwrap();
-            }
-
-            self.task = None;
-            self.cpu_profiler = (None, None);
-
-            Some((cpu_time, gpu_time))
-        } else {
-            None
-        }
-    }
-}
-
-impl Drop for Profiler {
-    fn drop(&mut self) {
-        drop(self.sender.take());
-
-        let mut queries = [self.gpu_profiler.0, self.gpu_profiler.1];
-        unsafe { gl!(gl::DeleteQueries(2, queries.as_mut_ptr())).unwrap() };
-
-        if let Some(handle) = self.thread.take() {
-            handle.join().unwrap();
-        }
-    }
-}
-
 #[derive(Debug)]
 struct FontGlyph {
     id: char,
@@ -143,6 +31,7 @@ struct TextRenderer<'a> {
     shaders: ShaderProgram,
     font_face: FontFace,
     atlas: Texture2D,
+    matrix_buffer: Buffer<Mat4, false, true>,
 }
 
 impl<'a> TextRenderer<'a> {
@@ -152,7 +41,7 @@ impl<'a> TextRenderer<'a> {
     const FONT_FACE: &'static [u8] = include_bytes!("../assets/fonts/sans-serif/sans-serif.fnt");
     const FONT_IMAGE: &'static [u8] = include_bytes!("../assets/fonts/sans-serif/sans-serif.png");
 
-    pub fn new(device: Device<'a>) -> Self {
+    pub fn new(device: Device<'a>, window_size: (u32, u32)) -> Self {
         let shaders = {
             let vs = device.new_shader(VertexStage, Self::VERTEX_SHADER);
             let ps = device.new_shader(PixelStage, Self::PIXEL_SHADER);
@@ -164,75 +53,91 @@ impl<'a> TextRenderer<'a> {
         let font_image = image::load_from_memory(Self::FONT_IMAGE).unwrap();
         atlas.write(font_image.flipv().as_rgba8().as_ref().unwrap());
 
+        let (width, height) = window_size;
+        let projection = Mat4::orthographic_rh_gl(0.0, width as _, 0.0, height as _, 0.0, 1.0);
+        let matrix_buffer = device.new_buffer(BufferInit::Data(&[projection]));
+
         Self {
             device,
             shaders,
             font_face,
             atlas,
+            matrix_buffer,
         }
     }
 
     pub fn render(&mut self, scene: &Scene, framebuffer: &mut Framebuffer) {
         let Self { device, .. } = self;
 
-        let (position, string) = &scene.text[0];
+        let Text {
+            position,
+            text,
+            color,
+            scale,
+        } = &scene.text[0];
+
         let position = vec2(position.x as _, position.y as _);
 
-        let mut vertices: Vec<[Vec2; 2]> = Vec::with_capacity(string.chars().count());
-        for c in string.chars() {
-            let glyph = &self
+        let mut vertices = Vec::with_capacity(6 * text.chars().count());
+        let mut advance = Vec2::default();
+        for c in text.chars() {
+            if c.is_whitespace() {
+                advance += vec2(38.0, 0.0);
+                continue;
+            }
+
+            let glyph = self
                 .font_face
                 .glyphs
                 .iter()
                 .find(|glyph| glyph.id == c)
-                .expect("font face doesn't contain character");
+                .unwrap();
 
             let glyph_size = vec2(glyph.size.x as _, glyph.size.y as _);
-            let glyph_width = Vec2::new(glyph.size.x as _, 0.0);
-            let glyph_height = Vec2::new(0.0, glyph.size.y as _);
             let glyph_position = vec2(glyph.position.x as _, glyph.position.y as _);
+            let glyph_offset = vec2(glyph.offset.x as _, glyph.offset.y as _);
+            let glyph_height = vec2(0.0, glyph_size.y);
+            let glyph_width = vec2(glyph_size.x, 0.0);
 
-            let face_width = self.font_face.width as _;
-            let face_height = self.font_face.height as _;
-            let face_size = vec2(face_width, face_height);
-
-            // opengl texture coordinates are (0, 0) in the lower left corner.
+            // (font_face_width, 0) -> (1, 0)
+            // (0, font_face_height) -> (0, 0)
             let to_opengl = |texcoord: Vec2| {
-                let x = (texcoord.x) / face_width;
-                let y = (face_height - texcoord.y) / face_height;
+                let x = texcoord.x / self.font_face.width as f32;
+                let y = 1.0 - (texcoord.y / self.font_face.height as f32);
                 vec2(x, y)
             };
 
-            // We need to push 6 vertices for each character because a character consists of
-            // a single quad.
             vertices.extend_from_slice(&[
                 // top left -> top right -> bottom left
-                [position, to_opengl(glyph_position)],
-                [
-                    position + glyph_width,
-                    to_opengl(glyph_position + glyph_width),
-                ],
-                [
-                    position + glyph_height,
-                    to_opengl(glyph_position + glyph_height),
-                ],
+                TextVertex {
+                    position: position - glyph_offset + advance,
+                    texcoord: to_opengl(glyph_position),
+                },
+                TextVertex {
+                    position: position + glyph_width - glyph_offset + advance,
+                    texcoord: to_opengl(glyph_position + glyph_width),
+                },
+                TextVertex {
+                    position: position - glyph_height - glyph_offset + advance,
+                    texcoord: to_opengl(glyph_position + glyph_height),
+                },
                 // top right -> bottom right -> bottom left
-                [
-                    position + glyph_width,
-                    to_opengl(glyph_position + glyph_width),
-                ],
-                [
-                    position + glyph_size,
-                    to_opengl(glyph_position + glyph_size),
-                ],
-                [
-                    position + glyph_height,
-                    to_opengl(glyph_position + glyph_height),
-                ],
+                TextVertex {
+                    position: position + glyph_width - glyph_offset + advance,
+                    texcoord: to_opengl(glyph_position + glyph_width),
+                },
+                TextVertex {
+                    position: position + glyph_width - glyph_height - glyph_offset + advance,
+                    texcoord: to_opengl(glyph_position + glyph_size),
+                },
+                TextVertex {
+                    position: position - glyph_height - glyph_offset + advance,
+                    texcoord: to_opengl(glyph_position + glyph_height),
+                },
             ]);
-        }
 
-        println!("{vertices:?}");
+            advance += glyph_width
+        }
 
         let vertex_buffer: Buffer<_, false, false> = device.new_buffer(BufferInit::Data(&vertices));
 
@@ -250,20 +155,27 @@ impl<'a> TextRenderer<'a> {
 
         device.bind_shader_program(&self.shaders);
 
-        let projection = Mat4::orthographic_rh_gl(0.0, 640.0, 0.0, 480.0, 0.0, 1.0);
-        let matrix_buffer: Buffer<_, false, false> =
-            device.new_buffer(BufferInit::Data(&[projection]));
-
         unsafe {
-            gl!(gl::BindBufferBase(gl::UNIFORM_BUFFER, 0, matrix_buffer.id)).unwrap();
+            gl::TextureParameteri(self.atlas.id, gl::TEXTURE_MIN_FILTER, gl::LINEAR as _);
+            gl::TextureParameteri(self.atlas.id, gl::TEXTURE_MAG_FILTER, gl::LINEAR as _);
             gl!(gl::BindTexture(gl::TEXTURE_2D, self.atlas.id)).unwrap();
+
+            gl!(gl::BindBufferBase(
+                gl::UNIFORM_BUFFER,
+                0,
+                self.matrix_buffer.id
+            ))
+            .unwrap();
         }
 
-        // device.bind_framebuffer(framebuffer);
+        device.bind_framebuffer(framebuffer);
         device.draw(vertices.len());
     }
 
-    pub fn resize(&mut self) {}
+    pub fn resize(&mut self, width: u32, height: u32) {
+        let projection = Mat4::orthographic_rh_gl(0.0, width as _, 0.0, height as _, 0.0, 1.0);
+        self.matrix_buffer = self.device.new_buffer(BufferInit::Data(&[projection]));
+    }
 
     fn parse_fnt(bytes: &[u8]) -> FontFace {
         let ident = |s: &str| {
@@ -362,6 +274,23 @@ impl<'a> TextRenderer<'a> {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TextVertex {
+    position: Vec2,
+    texcoord: Vec2,
+}
+
+unsafe impl BufferLayout for TextVertex {
+    const LAYOUT: &'static [Format] = &[Format::Vec2, Format::Vec2];
+    const PADDING: &'static [usize] = &[0, 0];
+    const COPYABLE: bool = true;
+
+    fn to_bytes(items: &[Self]) -> Vec<u8> {
+        unimplemented!()
+    }
+}
+
 struct Cache {
     vertices: Buffer<Vertex>,
     matrices: Buffer<Mat4, false, true>,
@@ -450,7 +379,7 @@ impl Renderer<'_> {
         Self {
             _instance,
             window_size,
-            text_renderer: TextRenderer::new(device.clone()),
+            text_renderer: TextRenderer::new(device.clone(), window_size),
             device,
             swapchain,
             framebuffer,
@@ -471,14 +400,14 @@ impl Renderer<'_> {
 
         self.device
             .default_framebuffer()
-            .clear(Vec4::new(0.0, 0.0, 0.0, 1.0), true);
+            .clear(Vec4::new(0.0, 0.0, 0.0, 0.0), true);
 
-        // self.framebuffer.clear(Vec4::new(0.0, 0.0, 0.0, 1.0), true);
+        self.framebuffer.clear(Vec4::new(0.0, 0.0, 0.0, 1.0), true);
 
-        // self.geometry_pass(scene);
-
+        self.geometry_pass(scene);
         self.text_renderer.render(scene, &mut self.framebuffer);
-        // self.blit();
+
+        self.blit();
         self.swapchain.present();
 
         let measurement = self.profiler.end_profile("Renderer");
@@ -495,6 +424,8 @@ impl Renderer<'_> {
         let frame = device.new_texture_2d(width as _, height as _, Format::R8G8B8A8);
         let depth = device.new_texture_2d(width as _, height as _, Format::D24);
         self.framebuffer = device.new_framebuffer(frame, Some(depth));
+
+        self.text_renderer.resize(width, height);
     }
 
     fn geometry_pass(&mut self, scene: &mut Scene) {

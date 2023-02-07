@@ -71,11 +71,48 @@ macro_rules! impl_into_entity {
 
 impl_into_entity!(Light, Object);
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Text {
+    pub position: UVec2,
+    pub text: String,
+    pub color: Vec4,
+    pub scale: f32,
+}
+
+impl Text {
+    pub fn white(position: UVec2, text: String) -> Self {
+        Self {
+            position,
+            text,
+            color: vec4(1.0, 1.0, 1.0, 1.0),
+            scale: 1.0,
+        }
+    }
+
+    pub fn black(position: UVec2, text: String) -> Self {
+        Self {
+            position,
+            text,
+            color: vec4(0.0, 0.0, 0.0, 1.0),
+            scale: 1.0,
+        }
+    }
+
+    pub fn with_color(position: UVec2, text: String, color: Vec4) -> Self {
+        Self {
+            position,
+            text,
+            color,
+            scale: 1.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub camera: Camera,
     pub entities: Vec<Entity>,
-    pub text: Vec<(UVec2, String)>,
+    pub text: Vec<Text>,
     materials: Box<[Material; 256]>,
 }
 

@@ -1,7 +1,7 @@
 use glam::*;
 use sdl2::keyboard::{KeyboardState, Scancode};
 
-use crate::scene::Scene;
+use crate::scene::{Scene, Text};
 
 pub struct GameSystems<'a> {
     pub keyboard: KeyboardState<'a>,
@@ -13,10 +13,15 @@ pub struct Game {
 }
 
 impl Game {
-    const SPEED: f32 = 10.0;
+    const SPEED: f32 = 50.0;
 
     pub fn new(scene: &mut Scene) -> Self {
-        scene.text.push((UVec2::new(200, 200), "W".to_string()));
+        scene.text.push(Text {
+            position: uvec2(0, 0),
+            text: "FPS".to_string(),
+            color: vec4(0.0, 1.0, 0.0, 1.0),
+            scale: 0.5,
+        });
 
         Self { health: 100 }
     }
@@ -42,5 +47,7 @@ impl Game {
         if keyboard.is_scancode_pressed(Scancode::D) {
             camera.translate(Vec3::new(Self::SPEED, 0.0, 0.0) * dt);
         }
+
+        scene.text[0].text = format!("FPS {:05.1}", 1.0 / dt);
     }
 }
