@@ -3,7 +3,8 @@ use std::path::Path;
 
 use glam::*;
 
-use crate::vox::{self, VoxMaterial};
+use crate::tensor::SparseTensorChunk;
+use crate::vox::{VoxMaterial, VoxModel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
@@ -16,12 +17,43 @@ pub struct Material {
     pub metalness: f32,
 }
 
+impl From<VoxMaterial> for Material {
+    fn from(value: VoxMaterial) -> Self {
+        Self {
+            albedo: value.albedo,
+            roughness: value.roughness,
+            metalness: value.metalness,
+        }
+    }
+}
+
 /// A chunk is a cube consisting of `x` by `y` by `z` voxels.
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Model {
     pub transform: Mat4,
     pub positions: Vec<(Vec3, MaterialId)>,
-    pub size: Vec3,
+    pub size: UVec3,
+}
+
+impl From<VoxModel> for Model {
+    fn from(value: VoxModel) -> Self {
+        let positions = value
+            .positions
+            .into_iter()
+            .map(|(position, mat)| (position, MaterialId(mat.0 - 1)))
+            .collect();
+
+        let transform = value.transform
+            * Mat4::from_rotation_x(std::f32::consts::PI / 2.0)
+            * Mat4::from_rotation_y(std::f32::consts::PI);
+
+        let size = uvec3(value.size.0 as _, value.size.1 as _, value.size.2 as _);
+        Self {
+            positions,
+            transform,
+            size,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +64,26 @@ pub struct Light {
 #[derive(Debug, Clone)]
 pub struct Object {
     pub transform: Mat4,
+    pub model: Model,
+    pub tag: Option<String>,
+}
+
+impl Object {
+    pub fn new(transform: Mat4, model: Model) -> Self {
+        Self {
+            transform,
+            model,
+            tag: None,
+        }
+    }
+
+    pub fn with_tag(transform: Mat4, model: Model, tag: String) -> Self {
+        Self {
+            transform,
+            model,
+            tag: Some(tag),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +97,6 @@ impl Entity {
         match self {
             Entity::Light(l) => Some(&l.transform),
             Entity::Object(o) => Some(&o.transform),
-            Entity::Terrain(t) => Some(&t.transform),
         }
     }
 
@@ -53,14 +104,13 @@ impl Entity {
         match self {
             Entity::Light(l) => Some(&mut l.transform),
             Entity::Object(o) => Some(&mut o.transform),
-            Entity::Terrain(t) => Some(&mut t.transform),
         }
     }
 }
 
 macro_rules! impl_into_entity {
     ($($entity: ident),*) => {
-        $(impl From<$entity> for Entity> {
+        $(impl From<$entity> for Entity {
             fn from(value: $entity) -> Entity{
                 Entity::$entity(value)
             }
@@ -107,12 +157,13 @@ impl Text {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Scene {
     pub camera: Camera,
     pub entities: SceneGraph,
-    pub terrain: ()
+    pub terrain: Vec<SparseTensorChunk>,
     pub text: Vec<Text>,
+    has_materials: bool,
     materials: Box<[Material; 256]>,
 }
 
@@ -120,56 +171,27 @@ impl Scene {
     pub fn new(camera: Camera) -> Self {
         Self {
             camera,
-            entities: Vec::default(),
+            entities: SceneGraph {
+                nodes: Vec::default(),
+            },
+            terrain: Vec::default(),
             text: Vec::default(),
+            has_materials: false,
             materials: Box::new([Material::default(); 256]),
         }
     }
 
-    pub fn open(path: impl AsRef<Path>, camera: Camera) -> Self {
-        let (models, materials) = vox::open(path);
-
-        let rotation_x = Mat4::from_rotation_x(std::f32::consts::PI / 2.0);
-        let rotation_y = Mat4::from_rotation_y(std::f32::consts::PI);
-
-        let mut terrain = Vec::with_capacity(models.len());
-        for model in models {
-            let size = model.size;
-            let chunk = Chunk {
-                transform: rotation_x * rotation_y * model.transform,
-                size: Vec3::new(size.0 as _, size.1 as _, size.2 as _),
-                positions: model
-                    .positions
-                    .into_iter()
-                    .map(|(p, id)| (p, MaterialId(id.0 - 1)))
-                    .collect(),
-            };
-            terrain.push(Entity::Terrain(chunk));
-        }
-
-        let materials = Box::new(materials.map(|vox| Material {
-            albedo: vox.albedo,
-            roughness: vox.roughness,
-            metalness: vox.metalness,
-        }));
-
-        Self {
-            camera,
-            entities: terrain,
-            text: Vec::default(),
-            materials,
-        }
-    }
-
-    pub fn terrain(&self) -> impl Iterator<Item = &Chunk> {
-        self.entities.iter().filter_map(|entity| match entity {
-            Entity::Terrain(chunk) => Some(chunk),
-            _ => None,
-        })
+    pub fn has_materials(&self) -> bool {
+        self.has_materials
     }
 
     pub fn materials(&self) -> &[Material] {
         self.materials.as_slice()
+    }
+
+    pub fn set_materials(&mut self, materials: Box<[Material; 256]>) {
+        self.has_materials = true;
+        self.materials = materials;
     }
 }
 
@@ -222,8 +244,10 @@ impl Camera {
     }
 }
 
+#[derive(Debug)]
 pub struct SceneNodeId(usize);
 
+#[derive(Debug)]
 pub struct SceneNode {
     parent: SceneNodeId,
     base_entity: Entity,
@@ -266,6 +290,7 @@ impl SceneNode {
 }
 
 // Actually a scene tree, because each node only has one parent.
+#[derive(Debug)]
 pub struct SceneGraph {
     nodes: Vec<Option<SceneNode>>,
 }
@@ -275,13 +300,26 @@ impl SceneGraph {
         Self { nodes: vec![None] }
     }
 
-    pub fn insert_entity(&mut self, entity: Entity, parent: &SceneNodeId) -> SceneNodeId {
-        self.nodes.push(Some(SceneNode::new(entity, parent)));
+    pub fn insert_entity(
+        &mut self,
+        entity: impl Into<Entity>,
+        parent: &SceneNodeId,
+    ) -> SceneNodeId {
+        self.nodes.push(Some(SceneNode::new(entity.into(), parent)));
         SceneNodeId(self.nodes.len() - 1)
     }
 
     pub fn entity(&self, id: &SceneNodeId) -> Option<&Entity> {
         self.nodes[id.0].as_ref().map(|s| &s.base_entity)
+    }
+
+    pub fn object_mut(&mut self, id: &SceneNodeId) -> Option<&mut Object> {
+        let entity = self.entity_mut(id);
+        match entity {
+            Some(Entity::Object(object)) => Some(object),
+            Some(_) => panic!("Found {id:?}, but wasn't an object"),
+            _ => None,
+        }
     }
 
     pub fn entity_mut(&mut self, id: &SceneNodeId) -> Option<&mut Entity> {
@@ -301,7 +339,7 @@ impl SceneGraph {
         }
     }
 
-    pub fn root_node(&self) -> SceneNodeId {
+    pub fn root(&self) -> SceneNodeId {
         SceneNodeId(0)
     }
 
@@ -309,22 +347,37 @@ impl SceneGraph {
         self.nodes[id.0].as_ref().map(|s| &s.mutated_entity)
     }
 
-    fn mutated_entities(&self) -> impl ExactSizeIterator<Item = &Entity> {
+    pub fn mutated_entities(&self) -> impl Iterator<Item = &Entity> {
         self.nodes
             .iter()
-            .filter_map(|node| node.map(|node| node.mutated_entity))
+            .filter_map(|node| node.as_ref().map(|node| &node.mutated_entity))
     }
 }
 
 #[test]
 fn graph() {
     let mut g = SceneGraph::new();
-    let root = g.root_node();
+    let root = g.root();
 
     let transform = Mat4::from_cols_array_2d(&[[1., 2., 3., 4.]; 4]);
 
-    let a = g.insert_entity(Object { transform }.into(), &root);
-    let b = g.insert_entity(Object { transform }.into(), &a);
+    let a = g.insert_entity(
+        Object {
+            transform,
+            model: Model::default(),
+            tag: None,
+        },
+        &root,
+    );
+    let b = g.insert_entity(
+        Object {
+            transform,
+            model: Model::default(),
+            tag: None,
+        },
+        &a,
+    );
+
     g.evaluate_all();
 
     assert_eq!(

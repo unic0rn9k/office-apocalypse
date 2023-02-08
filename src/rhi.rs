@@ -464,6 +464,9 @@ impl<'a> Device<'a> {
         assert!(src_width <= dst_width);
         assert!(src_height <= dst_height);
 
+        println!("{src_width},{src_height}");
+        println!("{dst_width},{dst_height}");
+
         unsafe {
             gl!(gl::BlitNamedFramebuffer(
                 src.id,
@@ -477,7 +480,7 @@ impl<'a> Device<'a> {
                 dst_height,
                 dst_width,
                 gl::COLOR_BUFFER_BIT | if depth { gl::DEPTH_BUFFER_BIT } else { 0 },
-                gl::LINEAR
+                gl::NEAREST
             ))
         }
         .unwrap();
