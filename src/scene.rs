@@ -3,8 +3,8 @@ use std::path::Path;
 
 use glam::*;
 
+use crate::format::vox::{VoxMaterial, VoxModel};
 use crate::tensor::SparseTensorChunk;
-use crate::vox::{VoxMaterial, VoxModel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
@@ -90,6 +90,7 @@ impl Object {
 pub enum Entity {
     Light(Light),
     Object(Object),
+    Camera(Camera),
 }
 
 impl Entity {
@@ -97,6 +98,7 @@ impl Entity {
         match self {
             Entity::Light(l) => Some(&l.transform),
             Entity::Object(o) => Some(&o.transform),
+            Entity::Camera(c) => Some(&c.transform),
         }
     }
 
@@ -104,6 +106,7 @@ impl Entity {
         match self {
             Entity::Light(l) => Some(&mut l.transform),
             Entity::Object(o) => Some(&mut o.transform),
+            Entity::Camera(c) => Some(&mut c.transform),
         }
     }
 }
@@ -118,7 +121,7 @@ macro_rules! impl_into_entity {
     };
 }
 
-impl_into_entity!(Light, Object);
+impl_into_entity!(Light, Object, Camera);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Text {
@@ -159,8 +162,8 @@ impl Text {
 
 #[derive(Debug)]
 pub struct Scene {
-    pub camera: Camera,
-    pub entities: SceneGraph,
+    pub camera: SceneNodeId,
+    pub scene_graph: SceneGraph,
     pub terrain: Vec<SparseTensorChunk>,
     pub text: Vec<Text>,
     has_materials: bool,
@@ -169,15 +172,32 @@ pub struct Scene {
 
 impl Scene {
     pub fn new(camera: Camera) -> Self {
+        let mut scene_graph = SceneGraph::new();
+        let camera_id = scene_graph.insert_entity(camera, &scene_graph.root());
+
         Self {
-            camera,
-            entities: SceneGraph {
-                nodes: Vec::default(),
-            },
+            camera: camera_id,
+            scene_graph,
             terrain: Vec::default(),
             text: Vec::default(),
             has_materials: false,
             materials: Box::new([Material::default(); 256]),
+        }
+    }
+
+    pub fn camera(&self) -> &Camera {
+        let entity = self.scene_graph.entity(&self.camera).unwrap();
+        match entity {
+            Entity::Camera(camera) => camera,
+            _ => panic!("camera is not a Entity::Camera"),
+        }
+    }
+
+    pub fn camera_mut(&mut self) -> &mut Camera {
+        let entity = self.scene_graph.entity_mut(&self.camera).unwrap();
+        match entity {
+            Entity::Camera(camera) => camera,
+            _ => panic!("camera is not a Entity::Camera"),
         }
     }
 
@@ -198,6 +218,7 @@ impl Scene {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
     position: Vec3,
+    transform: Mat4,
     direction: Vec3,
     view: Mat4,
     projection: Mat4,
@@ -211,6 +232,7 @@ impl Camera {
 
         Self {
             position,
+            transform: Mat4::from_translation(position),
             direction,
             view: Mat4::look_at_rh(position, position + direction, Vec3::new(0.0, 1.0, 0.0)),
             projection: Mat4::perspective_rh_gl(Self::FOV, aspect_ratio, 0.1, 100.0),

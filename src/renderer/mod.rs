@@ -3,6 +3,7 @@ use sdl2::video::*;
 
 use self::profiler::*;
 use crate::rhi::*;
+use crate::scene;
 use crate::scene::*;
 
 mod profiler;
@@ -93,6 +94,11 @@ impl Renderer<'_> {
         let device = _instance.new_device();
         let swapchain = _instance.new_swapchain(vsync);
 
+        unsafe {
+            gl::Enable(gl::BLEND);
+            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+        }
+
         let window_size = UVec2::from(window.size());
 
         let framebuffer = {
@@ -140,13 +146,13 @@ impl Renderer<'_> {
         framebuffer.clear(vec4(0.0, 0.0, 0.0, 0.0), true);
         default_framebuffer.clear(vec4(0.0, 0.0, 0.0, 0.0), true);
 
-        self.geometry_pass(scene, &mut framebuffer);
+        self.geometry_pass(scene, &mut default_framebuffer);
         // self.postprocess_pass(&mut framebuffer);
         // self.text_pass(&mut framebuffer);
 
         // Copy the image from the framebuffer to the default framebuffer and present
         // the image.
-        let Self { device, .. } = self;
+        // let Self { device, .. } = self;
         // device.blit(&framebuffer, &mut default_framebuffer, false);
 
         self.swapchain.present();
@@ -171,6 +177,8 @@ impl Renderer<'_> {
         };
     }
 
+    fn terrain_pass(&mut self, scene: &mut Scene) {}
+
     fn geometry_pass(&mut self, scene: &mut Scene, framebuffer: &mut Framebuffer) {
         let Self { device, cache, .. } = self;
         let Cache {
@@ -179,7 +187,7 @@ impl Renderer<'_> {
             material_buffer,
         } = cache;
 
-        scene.entities.evaluate_all();
+        scene.scene_graph.evaluate_all();
 
         let material_buffer = if let Some(material_buffer) = material_buffer.take() {
             material_buffer
@@ -187,7 +195,7 @@ impl Renderer<'_> {
             device.new_buffer(BufferInit::Data(scene.materials()))
         };
 
-        for entity in scene.entities.mutated_entities() {
+        for entity in scene.scene_graph.mutated_entities() {
             if let Entity::Object(object) = entity {
                 let model = &object.model;
 
@@ -211,7 +219,8 @@ impl Renderer<'_> {
                 device.bind_shader_program(&self.shaders);
 
                 let model_matrix = model.transform;
-                let mvp_matrix = scene.camera.view_projection() * (object.transform * model_matrix);
+                let mvp_matrix =
+                    scene.camera().view_projection() * (object.transform * model_matrix);
 
                 matrix_buffer.map_write().write(&[model_matrix, mvp_matrix]);
 
@@ -225,7 +234,7 @@ impl Renderer<'_> {
                     .unwrap();
                 }
 
-                device.unbind_framebuffer();
+                device.bind_framebuffer(framebuffer);
                 device.draw_instanced(VERTICES.len(), model.positions.len());
             }
         }
@@ -235,7 +244,7 @@ impl Renderer<'_> {
 
     fn postprocess_pass(&mut self, framebuffer: &mut Framebuffer) {}
 
-    fn text_pass(&mut self, framebuffer: &mut Framebuffer) {}
+    fn text_pass(&mut self, scene: &Scene, framebuffer: &mut Framebuffer) {}
 }
 
 unsafe impl BufferLayout for (Vec3, MaterialId) {

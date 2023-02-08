@@ -464,8 +464,8 @@ impl<'a> Device<'a> {
         assert!(src_width <= dst_width);
         assert!(src_height <= dst_height);
 
-        println!("{src_width},{src_height}");
-        println!("{dst_width},{dst_height}");
+        println!("src: {src_width},{src_height}");
+        println!("dst: {dst_width},{dst_height}");
 
         unsafe {
             gl!(gl::BlitNamedFramebuffer(

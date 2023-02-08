@@ -3,6 +3,8 @@ in vec2 texcoord;
 
 uniform sampler2D textAtlas;
 
+uniform vec4 textColor;
+
 out vec4 color;
 
 void main() {

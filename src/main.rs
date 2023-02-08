@@ -10,12 +10,12 @@ use crate::game::*;
 use crate::renderer::*;
 use crate::scene::*;
 
+mod format;
 mod game;
 mod renderer;
 mod rhi;
 mod scene;
 mod tensor;
-mod vox;
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
@@ -59,7 +59,7 @@ fn main() -> Result<(), String> {
             match event {
                 Event::Window { win_event, .. } => match win_event {
                     WindowEvent::SizeChanged(width, height) => {
-                        scene.camera.resize(width as f32, height as f32);
+                        scene.camera_mut().resize(width as f32, height as f32);
                         renderer.resize(uvec2(width as _, height as _));
                     }
                     WindowEvent::Close => break 'running,

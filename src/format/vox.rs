@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        let input = include_bytes!("../assets/knife.vox");
+        let input = include_bytes!("../../assets/knife.vox");
         let mut cursor = Cursor::new(input);
         super::parse(&mut cursor);
     }

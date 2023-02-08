@@ -1,8 +1,8 @@
 use glam::*;
 use sdl2::keyboard::{KeyboardState, Scancode};
 
+use crate::format::vox;
 use crate::scene::{Camera, Entity, Light, Model, Object, Scene, SceneNode, SceneNodeId, Text};
-use crate::vox;
 
 pub struct GameSystems<'a> {
     pub keyboard: KeyboardState<'a>,
@@ -41,8 +41,11 @@ impl Game {
             (gun, magazine)
         };
 
-        let gun_id = scene.entities.insert_entity(gun, &scene.entities.root());
-        let _magazine_id = scene.entities.insert_entity(magazine, &gun_id);
+        let gun_id = scene
+            .scene_graph
+            .insert_entity(gun, &scene.scene_graph.root());
+
+        let _magazine_id = scene.scene_graph.insert_entity(magazine, &gun_id);
 
         scene.text.push(Text {
             position: uvec2(0, 0),
@@ -62,7 +65,7 @@ impl Game {
         let keyboard = &mut systems.keyboard;
         let dt = systems.dt;
 
-        let Scene { camera, .. } = scene;
+        let camera = scene.camera_mut();
 
         if keyboard.is_scancode_pressed(Scancode::W) {
             camera.translate(Vec3::new(0.0, 0.0, -Self::SPEED) * dt);
@@ -80,8 +83,10 @@ impl Game {
             camera.translate(Vec3::new(Self::SPEED, 0.0, 0.0) * dt);
         }
 
+        // TODO: Aksel fix le shooting.
+        // TODO: Bech fix le camera movement.
         let gun_entity = scene
-            .entities
+            .scene_graph
             .object_mut(&self.gun)
             .expect("Unable to find gun");
 

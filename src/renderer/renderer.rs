@@ -9,23 +9,6 @@ use sdl2::video::*;
 use crate::rhi::*;
 use crate::scene::*;
 
-#[derive(Debug)]
-struct FontGlyph {
-    id: char,
-    position: UVec2,
-    size: UVec2,
-    offset: IVec2,
-}
-
-#[derive(Debug)]
-struct FontFace {
-    width: usize,
-    height: usize,
-    line_height: u32,
-    base: u32,
-    glyphs: Vec<FontGlyph>,
-}
-
 struct TextRenderer<'a> {
     device: Device<'a>,
     shaders: ShaderProgram,
