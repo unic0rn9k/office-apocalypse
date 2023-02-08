@@ -88,6 +88,14 @@ impl Renderer<'_> {
     fn geometry_pass(&mut self, scene: &mut Scene, framebuffer: &mut Framebuffer) {
         let Self { device, .. } = self;
 
+        scene.entities.evaluate_all();
+
+        for entity in scene.entities.mutated_entities() {}
+
+        device.bind_vertex_buffer(BindProps {
+            attributes: [0, 1]
+        })
+
         device.bind_framebuffer(framebuffer);
         device.draw_instanced(vertices, instances);
     }

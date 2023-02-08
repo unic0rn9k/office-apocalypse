@@ -18,7 +18,7 @@ pub struct Material {
 
 /// A chunk is a cube consisting of `x` by `y` by `z` voxels.
 #[derive(Debug, Clone)]
-pub struct Chunk {
+pub struct Model {
     pub transform: Mat4,
     pub positions: Vec<(Vec3, MaterialId)>,
     pub size: Vec3,
@@ -38,7 +38,6 @@ pub struct Object {
 pub enum Entity {
     Light(Light),
     Object(Object),
-    Terrain(Chunk),
 }
 
 impl Entity {
@@ -61,9 +60,9 @@ impl Entity {
 
 macro_rules! impl_into_entity {
     ($($entity: ident),*) => {
-        $(impl Into<Entity> for $entity{
-            fn into(self) -> Entity{
-                Entity::$entity(self)
+        $(impl From<$entity> for Entity> {
+            fn from(value: $entity) -> Entity{
+                Entity::$entity(value)
             }
         })*
     };
@@ -111,7 +110,8 @@ impl Text {
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub camera: Camera,
-    pub entities: Vec<Entity>,
+    pub entities: SceneGraph,
+    pub terrain: ()
     pub text: Vec<Text>,
     materials: Box<[Material; 256]>,
 }
@@ -307,6 +307,12 @@ impl SceneGraph {
 
     pub fn mutated_entity(&self, id: &SceneNodeID) -> Option<&Entity> {
         self.nodes[id.0].as_ref().map(|s| &s.mutated_entity)
+    }
+
+    fn mutated_entities(&self) -> impl ExactSizeIterator<Item = &Entity> {
+        self.nodes
+            .iter()
+            .filter_map(|node| node.map(|node| node.mutated_entity))
     }
 }
 
