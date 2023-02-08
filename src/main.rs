@@ -1,7 +1,4 @@
-#![feature(iter_array_chunks)]
-#![feature(let_chains)]
-#![feature(slice_as_chunks)]
-#![feature(array_chunks)]
+#![feature(iter_array_chunks, let_chains, slice_as_chunks, array_chunks, test)]
 
 use glam::*;
 use sdl2::event::*;
@@ -17,6 +14,7 @@ mod game;
 mod renderer;
 mod rhi;
 mod scene;
+mod tensor;
 mod vox;
 
 const WIDTH: u32 = 640;
