@@ -2,6 +2,7 @@ use std::collections::{vec_deque, HashMap, HashSet, VecDeque};
 
 use glam::{IVec3, UVec3};
 
+use crate::scene::MaterialId;
 use crate::tensor::SparseTensorChunk;
 
 struct Thing {
@@ -11,6 +12,7 @@ struct Thing {
 
 impl Thing {
     // Dejstra path finding (breadth first search)
+    // The algorithm will spin forever, if there is no path.
     fn destination(&mut self, dest: UVec3, scene: &SparseTensorChunk) -> Vec<UVec3> {
         let mut reached = HashMap::<IVec3, Vec<IVec3>>::new();
         reached.insert(self.position.as_ivec3(), vec![]);
@@ -33,13 +35,18 @@ impl Thing {
             }
 
             if p.as_uvec3() == dest {
-                path_by_points = reached.get(&p).unwrap().clone();
+                let mut ret = reached.get(&p).unwrap().clone();
+                ret.push(dest.as_ivec3());
+                path_by_points = ret;
                 break;
             }
 
             for n in dirs {
                 if reached.contains_key(&(p + n))
-                    || (p + n).clamp(IVec3::ZERO, scene.dim.as_ivec3()) != (p + n)
+                    || (p + n).clamp(
+                        IVec3::ZERO,
+                        scene.dim.as_ivec3() - IVec3 { x: 1, y: 1, z: 1 },
+                    ) != (p + n)
                     || scene.voxel((p + n).as_uvec3()).is_some()
                 {
                     continue;
@@ -66,10 +73,11 @@ fn straight() {
         route: vec![],
     };
 
-    let path = thing.destination(
-        UVec3 { x: 3, y: 0, z: 0 },
-        &SparseTensorChunk::nothing(UVec3 { x: 4, y: 4, z: 4 }),
-    );
+    let mut env = SparseTensorChunk::nothing(UVec3 { x: 4, y: 4, z: 4 });
+
+    env.insert(UVec3 { x: 1, y: 0, z: 0 }, Some(MaterialId(0)));
+
+    let path = thing.destination(UVec3 { x: 3, y: 0, z: 0 }, &env);
 
     assert_eq!(
         path,
