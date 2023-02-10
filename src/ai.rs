@@ -5,15 +5,15 @@ use glam::{IVec3, UVec3};
 use crate::scene::MaterialId;
 use crate::tensor::SparseTensorChunk;
 
-struct Thing {
-    position: UVec3,
+pub struct Thing {
+    pub position: UVec3,
     route: Vec<UVec3>,
 }
 
 impl Thing {
     // Dejstra path finding (breadth first search)
     // The algorithm will spin forever, if there is no path.
-    fn destination(&mut self, dest: UVec3, scene: &SparseTensorChunk) -> Vec<UVec3> {
+    pub fn append_destination(&mut self, dest: UVec3, scene: &SparseTensorChunk) {
         let mut reached = HashMap::<IVec3, Vec<IVec3>>::new();
         reached.insert(self.position.as_ivec3(), vec![]);
 
@@ -23,8 +23,6 @@ impl Thing {
             IVec3::from([0, 0, 1]),
             IVec3::from([0, 0, -1]),
         ];
-
-        let mut path_by_points = vec![];
 
         let mut next_up = VecDeque::from([self.position.as_ivec3()]);
         let mut p;
@@ -37,7 +35,7 @@ impl Thing {
             if p.as_uvec3() == dest {
                 let mut ret = reached.get(&p).unwrap().clone();
                 ret.push(dest.as_ivec3());
-                path_by_points = ret;
+                self.route.extend(ret.iter().map(IVec3::as_uvec3));
                 break;
             }
 
@@ -61,8 +59,18 @@ impl Thing {
                 next_up.push_back(p + n);
             }
         }
+    }
 
-        path_by_points.iter().map(IVec3::as_uvec3).collect()
+    /// A route of absolute points. If the first point is 1,0,0, it means the
+    /// object should move to that point, not that it should move one in the x
+    /// direction.
+    pub fn absolute_route(&self) -> &Vec<UVec3> {
+        &self.route
+    }
+
+    // will remove and return the next direction to move, relative to self.position.
+    pub fn pop_move(&mut self) -> Option<IVec3> {
+        Some(self.position.as_ivec3() - self.route.pop()?.as_ivec3())
     }
 }
 
@@ -75,16 +83,17 @@ fn straight() {
 
     let mut env = SparseTensorChunk::nothing(UVec3 { x: 4, y: 4, z: 4 });
 
-    env.insert(UVec3 { x: 1, y: 0, z: 0 }, Some(MaterialId(0)));
+    //env.insert(UVec3 { x: 1, y: 0, z: 0 }, Some(MaterialId(0)));
 
-    let path = thing.destination(UVec3 { x: 3, y: 0, z: 0 }, &env);
+    thing.append_destination(UVec3 { x: 3, y: 0, z: 0 }, &env);
 
     assert_eq!(
-        path,
-        vec![
+        thing.absolute_route(),
+        &vec![
             UVec3 { x: 0, y: 0, z: 0 },
             UVec3 { x: 1, y: 0, z: 0 },
             UVec3 { x: 2, y: 0, z: 0 },
+            UVec3 { x: 3, y: 0, z: 0 },
         ]
     )
 }
