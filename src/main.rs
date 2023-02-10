@@ -10,6 +10,7 @@ use crate::game::*;
 use crate::renderer::*;
 use crate::scene::*;
 
+mod ai;
 mod game;
 mod renderer;
 mod rhi;
