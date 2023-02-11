@@ -1,11 +1,12 @@
 use glam::*;
 
+use crate::rhi::*;
 use crate::scene::*;
 
 pub struct TextRenderer {}
 
 impl TextRenderer {
-    pub fn new() -> Self {
+    pub fn new(device: Device, window_size: UVec2) -> Self {
         todo!()
     }
 

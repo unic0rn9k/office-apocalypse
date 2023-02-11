@@ -59,6 +59,8 @@ impl From<VoxModel> for Model {
 #[derive(Debug, Clone)]
 pub struct Light {
     pub transform: Mat4,
+    pub position: Vec3,
+    pub color: Vec3,
 }
 
 #[derive(Debug, Clone)]
