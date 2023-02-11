@@ -16,7 +16,7 @@ pub struct Game {
 }
 
 impl Game {
-    const SPEED: f32 = 1000.0;
+    const SPEED: f32 = 100.0;
     const CAPACITY: u32 = 9;
 
     pub fn new(scene: &mut Scene) -> Self {

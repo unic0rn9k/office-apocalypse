@@ -61,6 +61,7 @@ impl Instance {
 
         let shared = DeviceShared {
             vao,
+            program: 0,
             _instance: Rc::clone(&self.0),
         };
 
@@ -99,6 +100,7 @@ impl Instance {
 
 struct DeviceShared {
     vao: u32,
+    program: u32,
     _instance: Rc<InstanceShared>,
 }
 
@@ -175,6 +177,9 @@ impl<'a> Device<'a> {
         let format = match format {
             Format::R8G8B8A8 => gl::RGBA8,
             Format::D24 => gl::DEPTH_COMPONENT24,
+            Format::R32G32B32A32Float => gl::RGBA32F,
+            Format::R32G32Float => gl::RG32F,
+            Format::R32Uint => gl::R32UI,
             _ => panic!("Textures can only be created with texture compatible formats!"),
         };
 
@@ -329,7 +334,7 @@ impl<'a> Device<'a> {
                 Format::Vec4 => (4, gl::FLOAT, gl::FALSE),
                 Format::Mat3 => (12, gl::FLOAT, gl::FALSE),
                 Format::Mat4 => (16, gl::FLOAT, gl::FALSE),
-                Format::U32 => (4, gl::UNSIGNED_INT, gl::FALSE),
+                Format::U32 => (1, gl::UNSIGNED_INT, gl::FALSE),
                 _ => panic!("Format is not supported in vertex buffer"),
             };
 
@@ -370,8 +375,21 @@ impl<'a> Device<'a> {
     }
 
     pub fn bind_shader_program(&self, program: &'a ShaderProgram) {
-        let _device = self.0.borrow();
+        let mut device = self.0.borrow_mut();
+        device.program = program.id;
+
         unsafe { gl!(gl::UseProgram(program.id)) }.unwrap();
+    }
+
+    pub fn bind_texture_2d(&self, texture: &'a Texture2D, name: &str, location: usize) {
+        let device = self.0.borrow_mut();
+        let name = CString::new(name).unwrap();
+        unsafe {
+            gl!(gl::ActiveTexture(gl::TEXTURE0 + location as u32)).unwrap();
+            gl!(gl::BindTexture(gl::TEXTURE_2D, texture.id)).unwrap();
+            let uniform = gl::GetUniformLocation(device.program, name.as_ptr());
+            gl!(gl::Uniform1i(uniform, location.try_into().unwrap())).unwrap();
+        }
     }
 
     pub fn bind_framebuffer(&self, framebuffer: &'a mut Framebuffer) {
@@ -623,6 +641,9 @@ impl Drop for Framebuffer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     R8G8B8A8,
+    R32G32B32A32Float,
+    R32Uint,
+    R32G32Float,
     D24,
 
     F32,
@@ -663,8 +684,13 @@ pub unsafe trait BufferLayout: Sized {
             Format::Mat3 => 32,
             Format::Mat4 => 48,
 
-            Format::R8G8B8A8 => unimplemented!(),
-            Format::D24 => unimplemented!(),
+            Format::R8G8B8A8
+            | Format::R32G32B32A32Float
+            | Format::R32G32Float
+            | Format::D24
+            | Format::R32Uint => {
+                panic!("{format:?} can't be used in buffers.")
+            }
         };
 
         let size: usize = Self::LAYOUT.iter().map(format_to_size).sum();
@@ -695,8 +721,14 @@ pub unsafe trait BufferLayout: Sized {
             Format::Vec4 => 16,
             Format::Mat3 => 32,
             Format::Mat4 => 48,
-            Format::R8G8B8A8 => unimplemented!(),
-            Format::D24 => unimplemented!(),
+
+            Format::R8G8B8A8
+            | Format::R32G32B32A32Float
+            | Format::R32G32Float
+            | Format::D24
+            | Format::R32Uint => {
+                panic!("{format:?} can't be used in buffers.")
+            }
         };
 
         let size: usize = Self::LAYOUT[0..index].iter().map(format_to_size).sum();
