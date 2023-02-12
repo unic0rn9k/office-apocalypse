@@ -356,6 +356,30 @@ impl Renderer<'_> {
 
             gl!(gl::ClearNamedFramebufferfv(
                 fbo,
+                gl::COLOR,
+                1,
+                [0.0, 0.0, 0.0, 0.0].as_ptr()
+            ))
+            .unwrap();
+
+            gl!(gl::ClearNamedFramebufferfv(
+                fbo,
+                gl::COLOR,
+                2,
+                [0.0, 0.0, 0.0, 0.0].as_ptr()
+            ))
+            .unwrap();
+
+            gl!(gl::ClearNamedFramebufferfv(
+                fbo,
+                gl::COLOR,
+                3,
+                [0.0, 0.0, 0.0, 0.0].as_ptr()
+            ))
+            .unwrap();
+
+            gl!(gl::ClearNamedFramebufferfv(
+                fbo,
                 gl::DEPTH,
                 0,
                 [1.0].as_ptr()

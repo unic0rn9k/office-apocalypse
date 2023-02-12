@@ -17,7 +17,7 @@ struct Chunk {
 layout(std140, binding = 0) uniform Chunks { Chunk chunks[MAX_CHUNKS]; };
 
 out vec4 fragPosition;
-// out vec4 normal;
+out vec4 normal;
 out uint materialId;
 
 void main() {
@@ -26,6 +26,6 @@ void main() {
   gl_Position = chunks[a_chunkId].mvpMatrix * position;
 
   fragPosition = chunks[a_chunkId].modelMatrix * position;
-  // normal = vec4(a_normal, 0.0);
+  normal = vec4(a_normal, 0.0);
   materialId = a_materialId;
 }
