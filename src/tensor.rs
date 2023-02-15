@@ -44,6 +44,7 @@ impl SparseNode {
 pub struct SparseTensorChunk {
     nodes: Vec<SparseNode>,
     pub dim: UVec3,
+    //pub lower_bound: UVec3,
 }
 
 impl SparseTensorChunk {
@@ -149,21 +150,22 @@ impl SparseTensorChunk {
         Self {
             nodes: vec![Nothing(1); dim.to_array().iter().product::<u32>() as usize],
             dim,
+            //lower_bound: UVec3::ZERO,
         }
     }
 
     pub fn from_model(model: &[(UVec3, MaterialId)], dim: UVec3) -> Self {
-        // TODO: do this
         //let mut min_bound = model[0].0;
         //let mut max_bound = model[0].0;
 
         //for (p, _) in model {
         //    min_bound = p.min(min_bound);
-        //    max_bound = p.min(max_bound);
+        //    max_bound = p.max(max_bound);
         //}
 
         //let dim = max_bound - min_bound;
         let mut tmp = Self::nothing(dim);
+        //tmp.lower_bound = min_bound;
 
         for (p, m) in model {
             tmp.insert(*p, Some(*m))
