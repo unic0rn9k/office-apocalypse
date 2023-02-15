@@ -9,11 +9,13 @@ The goal with this game is to show off our programming skills to our teacher, th
 
 ## License
 
-## TODO
-
-- [-] Renderer
-- [-] Scene format
-- [-] Common api (for scene construction and rendering)
+## TODO (MVP)
+- procedural tarrain
+- physcics
+- ai / ennimies
+- shooting (mby descrutible tarrain)
+- camera movement
+- audio
 
 ### Models
 Thought inspiration from stanley parable and severance would be a good idea. (google it)
