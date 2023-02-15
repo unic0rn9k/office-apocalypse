@@ -11,6 +11,7 @@ use crate::renderer::*;
 use crate::scene::*;
 
 mod format;
+mod ai;
 mod game;
 mod renderer;
 mod rhi;

@@ -44,7 +44,8 @@ impl SparseNode {
 #[derive(Debug, Clone)]
 pub struct SparseTensorChunk {
     nodes: Vec<SparseNode>,
-    dim: UVec3,
+    pub dim: UVec3,
+    //pub lower_bound: UVec3,
 }
 
 impl SparseTensorChunk {
@@ -130,30 +131,42 @@ impl SparseTensorChunk {
     }
 
     pub fn voxel(&self, i: UVec3) -> Option<&(UVec3, MaterialId)> {
+        assert!(
+            i.x < self.dim.x && i.y < self.dim.y && i.z < self.dim.z,
+            "{i:?} out of bounds {:?}",
+            self.dim
+        );
         self.idx(i).map(|i| self.nodes[i].voxel())
     }
     pub fn voxel_mut(&mut self, i: UVec3) -> Option<&mut (UVec3, MaterialId)> {
+        assert!(
+            i.x < self.dim.x && i.y < self.dim.y && i.z < self.dim.z,
+            "{i:?} out of bounds {:?}",
+            self.dim
+        );
         self.idx(i).map(|i| self.nodes[i].voxel_mut())
     }
 
     pub fn nothing(dim: UVec3) -> Self {
-        Self { nodes: vec![], dim }
+        Self {
+            nodes: vec![Nothing(1); dim.to_array().iter().product::<u32>() as usize],
+            dim,
+            //lower_bound: UVec3::ZERO,
+        }
     }
 
     pub fn from_model(model: &[(UVec3, MaterialId)], dim: UVec3) -> Self {
-        // TODO: Det ville være smart, hvis man kunne antage modeler altid starter i 0,0
         //let mut min_bound = model[0].0;
         //let mut max_bound = model[0].0;
 
         //for (p, _) in model {
         //    min_bound = p.min(min_bound);
-        //    max_bound = p.min(max_bound);
+        //    max_bound = p.max(max_bound);
         //}
 
         //let dim = max_bound - min_bound;
-        let nodes = vec![Nothing(1); dim.to_array().iter().product::<u32>() as usize];
-
-        let mut tmp = Self { dim, nodes };
+        let mut tmp = Self::nothing(dim);
+        //tmp.lower_bound = min_bound;
 
         for (p, m) in model {
             tmp.insert(*p, Some(*m))
