@@ -10,13 +10,13 @@ use crate::game::*;
 use crate::renderer::*;
 use crate::scene::*;
 
+mod format;
 mod ai;
 mod game;
 mod renderer;
 mod rhi;
 mod scene;
 mod tensor;
-mod vox;
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;
@@ -24,7 +24,7 @@ const ASPECT_RATIO: f32 = WIDTH as f32 / HEIGHT as f32;
 
 fn setup_window(video_subsystem: &VideoSubsystem) -> Window {
     video_subsystem.gl_attr().set_context_version(4, 6);
-    video_subsystem.gl_attr().set_multisample_samples(4);
+    // video_subsystem.gl_attr().set_multisample_samples(4);
     video_subsystem
         .gl_attr()
         .set_context_profile(GLProfile::Core);
@@ -47,10 +47,10 @@ fn main() -> Result<(), String> {
     let mut event_pump = sdl.event_pump()?;
 
     let mut window = setup_window(&video_subsystem);
-    let mut renderer = Renderer::new(&window, true, false);
+    let mut renderer = Renderer::new(&window, false);
 
     let camera = Camera::new(Vec3::new(0.0, 0.0, -2.0), ASPECT_RATIO);
-    let mut scene = Scene::open("./assets/gun.vox", camera);
+    let mut scene = Scene::new(camera);
     let mut game = Game::new(&mut scene);
 
     let mut dt = 1.0;
@@ -60,8 +60,8 @@ fn main() -> Result<(), String> {
             match event {
                 Event::Window { win_event, .. } => match win_event {
                     WindowEvent::SizeChanged(width, height) => {
-                        renderer.resize(width as u32, height as u32);
-                        scene.camera.resize(width as f32, height as f32);
+                        scene.camera_mut().resize(width as f32, height as f32);
+                        renderer.resize(uvec2(width as _, height as _));
                     }
                     WindowEvent::Close => break 'running,
                     _ => {}
@@ -86,8 +86,8 @@ fn main() -> Result<(), String> {
             }
         }
 
-        if let Some(frametime) = renderer.run(&mut scene) {
-            dt = (frametime / 1000.0) as f32;
+        if let Some(time) = renderer.render(&mut scene) {
+            dt = (time / 1000.0) as _;
         }
 
         let mut systems = GameSystems {

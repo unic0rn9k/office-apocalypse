@@ -41,6 +41,7 @@ impl SparseNode {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SparseTensorChunk {
     nodes: Vec<SparseNode>,
     pub dim: UVec3,

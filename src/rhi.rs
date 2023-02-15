@@ -61,13 +61,14 @@ impl Instance {
 
         let shared = DeviceShared {
             vao,
+            program: 0,
             _instance: Rc::clone(&self.0),
         };
 
         Device(Rc::new(RefCell::new(shared)), PhantomData)
     }
 
-    pub fn new_swapchain(&self, nframebuffers: usize, vsync: bool) -> Swapchain {
+    pub fn new_swapchain(&self, vsync: bool) -> Swapchain {
         let interval = if vsync {
             SwapInterval::VSync
         } else {
@@ -77,16 +78,9 @@ impl Instance {
         let window = unsafe { Window::from_ref(Rc::clone(&self.0.window_context)) };
         let _ = window.subsystem().gl_set_swap_interval(interval);
 
-        let mut framebuffers = vec![0; nframebuffers];
-        let n = nframebuffers as i32;
-        unsafe { gl!(gl::CreateFramebuffers(n, framebuffers.as_mut_ptr())) }.unwrap();
-
-        let framebuffers = framebuffers.into_iter().map(Framebuffer).collect();
-
         Swapchain {
             _instance: Rc::clone(&self.0),
             window,
-            framebuffers,
         }
     }
 
@@ -106,12 +100,25 @@ impl Instance {
 
 struct DeviceShared {
     vao: u32,
+    program: u32,
     _instance: Rc<InstanceShared>,
 }
 
+#[derive(Clone)]
 pub struct Device<'a>(Rc<RefCell<DeviceShared>>, PhantomData<&'a ()>);
 
 impl<'a> Device<'a> {
+    pub fn default_framebuffer(&self) -> Framebuffer {
+        let mut device = self.0.borrow_mut();
+
+        Framebuffer {
+            id: 0,
+            texture: None,
+            depth: None,
+            default: true,
+        }
+    }
+
     pub fn new_buffer<T, const R: bool, const W: bool>(&self, b: BufferInit<T>) -> Buffer<T, R, W>
     where
         T: BufferLayout,
@@ -164,6 +171,71 @@ impl<'a> Device<'a> {
         }
     }
 
+    pub fn new_texture_2d(&self, width: usize, height: usize, format: Format) -> Texture2D {
+        let mut id = u32::MAX;
+
+        let format = match format {
+            Format::R8G8B8A8 => gl::RGBA8,
+            Format::D24 => gl::DEPTH_COMPONENT24,
+            Format::R32G32B32A32Float => gl::RGBA32F,
+            Format::R32G32Float => gl::RG32F,
+            Format::R32Uint => gl::R32UI,
+            _ => panic!("Textures can only be created with texture compatible formats!"),
+        };
+
+        unsafe {
+            gl!(gl::CreateTextures(gl::TEXTURE_2D, 1, &mut id)).unwrap();
+            gl!(gl::TextureStorage2D(id, 1, format, width as _, height as _)).unwrap();
+        }
+
+        Texture2D {
+            id,
+            width,
+            height,
+            _device: Rc::clone(&self.0),
+        }
+    }
+
+    pub fn new_framebuffer(&self, texture: Texture2D, depth: Option<Texture2D>) -> Framebuffer {
+        let mut id = u32::MAX;
+        unsafe { gl!(gl::CreateFramebuffers(1, &mut id)).unwrap() };
+
+        unsafe {
+            gl!(gl::NamedFramebufferTexture(
+                id,
+                gl::COLOR_ATTACHMENT0,
+                texture.id,
+                0
+            ))
+            .unwrap()
+        };
+
+        if let Some(depth) = &depth {
+            unsafe {
+                gl!(gl::NamedFramebufferTexture(
+                    id,
+                    gl::DEPTH_ATTACHMENT,
+                    depth.id,
+                    0
+                ))
+            }
+            .unwrap();
+        }
+
+        unsafe {
+            if gl::CheckNamedFramebufferStatus(id, gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
+                panic!("Failed to create framebuffer")
+            }
+        }
+
+        Framebuffer {
+            id,
+            texture: Some(texture),
+            depth,
+            default: false,
+        }
+    }
+
     pub fn new_shader<S: Stage>(&self, _stage: S, src: &str) -> Shader<S> {
         let stage = match S::STAGE_TYPE {
             StageType::Vertex => gl::VERTEX_SHADER,
@@ -204,9 +276,11 @@ impl<'a> Device<'a> {
 
     pub fn new_shader_program(&self, vs: &VertexShader, ps: &PixelShader) -> ShaderProgram {
         let id = unsafe { gl::CreateProgram() };
-        unsafe { gl!(gl::AttachShader(id, vs.0.id)) }.unwrap();
-        unsafe { gl!(gl::AttachShader(id, ps.0.id)) }.unwrap();
-        unsafe { gl!(gl::LinkProgram(id)) }.unwrap();
+        unsafe {
+            gl!(gl::AttachShader(id, vs.0.id)).unwrap();
+            gl!(gl::AttachShader(id, ps.0.id)).unwrap();
+            gl!(gl::LinkProgram(id)).unwrap();
+        }
 
         let mut success = 0;
         unsafe { gl!(gl::GetProgramiv(id, gl::LINK_STATUS, &mut success)) }.unwrap();
@@ -249,24 +323,39 @@ impl<'a> Device<'a> {
                 gl!(gl::VertexArrayAttribBinding(*vao, attrib, binding)).unwrap();
             }
 
+            let offset = T::offset(i);
+
             let (size, type_, normalized) = match format {
                 Format::F32 => (1, gl::FLOAT, gl::FALSE),
                 Format::Vec2 => (2, gl::FLOAT, gl::FALSE),
+                Format::UVec2 => (2, gl::UNSIGNED_INT, gl::FALSE),
+                Format::IVec2 => (2, gl::INT, gl::FALSE),
                 Format::Vec3 => (3, gl::FLOAT, gl::FALSE),
                 Format::Vec4 => (4, gl::FLOAT, gl::FALSE),
                 Format::Mat3 => (12, gl::FLOAT, gl::FALSE),
                 Format::Mat4 => (16, gl::FLOAT, gl::FALSE),
-                Format::U32 => (4, gl::UNSIGNED_INT, gl::FALSE),
+                Format::U32 => (1, gl::UNSIGNED_INT, gl::FALSE),
+                _ => panic!("Format is not supported in vertex buffer"),
             };
 
-            if type_ == gl::UNSIGNED_INT {
-                unsafe {
-                    gl!(gl::VertexArrayAttribIFormat(*vao, attrib, size, type_, 0)).unwrap();
-                }
-            } else {
-                unsafe {
+            unsafe {
+                if [gl::UNSIGNED_INT, gl::INT].contains(&type_) {
+                    gl!(gl::VertexArrayAttribIFormat(
+                        *vao,
+                        attrib,
+                        size,
+                        type_,
+                        offset as _
+                    ))
+                    .unwrap();
+                } else {
                     gl!(gl::VertexArrayAttribFormat(
-                        *vao, attrib, size, type_, normalized, 0
+                        *vao,
+                        attrib,
+                        size,
+                        type_,
+                        normalized,
+                        offset as _
                     ))
                     .unwrap();
                 }
@@ -286,8 +375,31 @@ impl<'a> Device<'a> {
     }
 
     pub fn bind_shader_program(&self, program: &'a ShaderProgram) {
-        let _device = self.0.borrow();
+        let mut device = self.0.borrow_mut();
+        device.program = program.id;
+
         unsafe { gl!(gl::UseProgram(program.id)) }.unwrap();
+    }
+
+    pub fn bind_texture_2d(&self, texture: &'a Texture2D, name: &str, location: usize) {
+        let device = self.0.borrow_mut();
+        let name = CString::new(name).unwrap();
+        unsafe {
+            gl!(gl::ActiveTexture(gl::TEXTURE0 + location as u32)).unwrap();
+            gl!(gl::BindTexture(gl::TEXTURE_2D, texture.id)).unwrap();
+            let uniform = gl::GetUniformLocation(device.program, name.as_ptr());
+            gl!(gl::Uniform1i(uniform, location.try_into().unwrap())).unwrap();
+        }
+    }
+
+    pub fn bind_framebuffer(&self, framebuffer: &'a mut Framebuffer) {
+        let _device = self.0.borrow();
+        unsafe { gl!(gl::BindFramebuffer(gl::FRAMEBUFFER, framebuffer.id)) }.unwrap();
+    }
+
+    pub fn unbind_framebuffer(&mut self) {
+        let _device = self.0.borrow_mut();
+        unsafe { gl!(gl::BindFramebuffer(gl::FRAMEBUFFER, 0)) }.unwrap();
     }
 
     pub fn draw(&self, vertices: usize) {
@@ -323,7 +435,9 @@ impl<'a> Device<'a> {
                 vertices as _,
                 instances as _
             ))
-            .unwrap()
+            .unwrap();
+
+            gl!(gl::BindVertexArray(0)).unwrap();
         }
     }
 
@@ -343,6 +457,97 @@ impl<'a> Device<'a> {
             .unwrap()
         }
     }
+
+    pub fn blit(&self, src: &Framebuffer, dst: &mut Framebuffer, depth: bool) {
+        let _device = self.0.borrow();
+
+        // If `src` is the default framebuffer we must query the size of the viewport
+        // using glGetIntegerV. The same holds true for `dst`.
+        let [src_width, src_height] = if let Some(texture) = &src.texture {
+            [texture.width as _, texture.height as _]
+        } else {
+            let mut buf = [0, 0, 0, 0];
+            unsafe { gl!(gl::GetIntegerv(gl::VIEWPORT, buf.as_mut_ptr())) }.unwrap();
+            [buf[2], buf[3]]
+        };
+
+        let [dst_width, dst_height] = if let Some(texture) = &dst.texture {
+            [texture.width as _, texture.height as _]
+        } else {
+            let mut buf = [0, 0, 0, 0];
+            unsafe { gl!(gl::GetIntegerv(gl::VIEWPORT, buf.as_mut_ptr())) }.unwrap();
+            [buf[2], buf[3]]
+        };
+
+        assert!(src_width <= dst_width);
+        assert!(src_height <= dst_height);
+
+        println!("src: {src_width},{src_height}");
+        println!("dst: {dst_width},{dst_height}");
+
+        unsafe {
+            gl!(gl::BlitNamedFramebuffer(
+                src.id,
+                dst.id,
+                0,
+                0,
+                src_width,
+                src_height,
+                0,
+                0,
+                dst_height,
+                dst_width,
+                gl::COLOR_BUFFER_BIT | if depth { gl::DEPTH_BUFFER_BIT } else { 0 },
+                gl::NEAREST
+            ))
+        }
+        .unwrap();
+    }
+}
+
+pub struct Texture2D {
+    pub id: u32,
+    width: usize,
+    height: usize,
+    _device: Rc<RefCell<DeviceShared>>,
+}
+
+impl Texture2D {
+    pub fn write(&mut self, bytes: &[u8]) {
+        assert_eq!(
+            bytes.len(),
+            self.width * self.height * std::mem::size_of::<u8>() * 4
+        );
+
+        unsafe {
+            gl!(gl::TextureSubImage2D(
+                self.id,
+                0,
+                0,
+                0,
+                self.width as _,
+                self.height as _,
+                gl::RGBA,
+                gl::UNSIGNED_BYTE,
+                bytes.as_ptr() as *const _
+            ))
+            .unwrap()
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+}
+
+impl Drop for Texture2D {
+    fn drop(&mut self) {
+        unsafe { gl!(gl::DeleteTextures(1, &mut self.id)).unwrap() };
+    }
 }
 
 pub struct BindProps<'a, T: BufferLayout, const R: bool, const W: bool> {
@@ -355,24 +560,98 @@ pub struct BindProps<'a, T: BufferLayout, const R: bool, const W: bool> {
 pub struct Swapchain {
     _instance: Rc<InstanceShared>,
     window: Window,
-    framebuffers: Vec<Framebuffer>,
 }
 
 impl Swapchain {
     pub fn present(&mut self) {
         self.window.gl_swap_window();
     }
+}
 
-    pub fn framebuffers(&self) -> &[Framebuffer] {
-        &self.framebuffers
+pub struct Framebuffer {
+    pub id: u32,
+    texture: Option<Texture2D>,
+    depth: Option<Texture2D>,
+    default: bool,
+}
+
+impl Framebuffer {
+    pub fn clear(&mut self, color: Vec4, depth: bool) {
+        unsafe { gl::ClearNamedFramebufferfv(self.id, gl::COLOR, 0, color.as_ref().as_ptr()) }
+
+        if depth {
+            let result = unsafe {
+                gl!(gl::ClearNamedFramebufferfv(
+                    self.id,
+                    gl::DEPTH,
+                    0,
+                    [1.0].as_ptr()
+                ))
+            };
+
+            result.unwrap();
+        }
+    }
+
+    pub fn color(&self) -> &Texture2D {
+        assert!(
+            self.id != 0,
+            "Tried to access color attachment for default framebuffer"
+        );
+
+        self.texture.as_ref().unwrap()
+    }
+
+    pub fn color_mut(&mut self) -> &mut Texture2D {
+        assert!(
+            self.id != 0,
+            "Tried to access color attachment for default framebuffer"
+        );
+
+        self.texture.as_mut().unwrap()
+    }
+
+    pub fn depth(&self) -> &Texture2D {
+        assert!(
+            self.id != 0,
+            "Tried to access color attachment for default framebuffer"
+        );
+
+        todo!()
+    }
+
+    pub fn depth_mut(&self) -> &mut Texture2D {
+        assert!(
+            self.id != 0,
+            "Tried to access color attachment for default framebuffer"
+        );
+
+        todo!()
     }
 }
 
-pub struct Framebuffer(u32);
+impl Drop for Framebuffer {
+    fn drop(&mut self) {
+        if !self.default {
+            let _ = unsafe { gl!(gl::DeleteFramebuffers(1, &self.id)) };
+        }
+    }
+}
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
+    R8G8B8A8,
+    R32G32B32A32Float,
+    R32Uint,
+    R32G32Float,
+    D24,
+
     F32,
+
     Vec2,
+    UVec2,
+    IVec2,
+
     Vec3,
     Vec4,
     Mat3,
@@ -394,12 +673,24 @@ pub unsafe trait BufferLayout: Sized {
     fn stride() -> usize {
         let format_to_size = |format: &Format| match format {
             Format::F32 => 4,
+            Format::U32 => 4,
+
             Format::Vec2 => 8,
+            Format::UVec2 => 8,
+            Format::IVec2 => 8,
+
             Format::Vec3 => 12,
             Format::Vec4 => 16,
             Format::Mat3 => 32,
             Format::Mat4 => 48,
-            Format::U32 => 4,
+
+            Format::R8G8B8A8
+            | Format::R32G32B32A32Float
+            | Format::R32G32Float
+            | Format::D24
+            | Format::R32Uint => {
+                panic!("{format:?} can't be used in buffers.")
+            }
         };
 
         let size: usize = Self::LAYOUT.iter().map(format_to_size).sum();
@@ -410,25 +701,39 @@ pub unsafe trait BufferLayout: Sized {
         Self::PADDING.iter().sum()
     }
 
-    /// Computes the offset between elements for the attribute located at
-    /// `index` in bytes
-    ///
-    /// Includes the size of the padding up to `index`, but not after.
+    /// Computes the offset from the start of the buffer to the attribute
+    /// located at `index`.
     // TODO(Bech): Probably not working...
     fn offset(index: usize) -> usize {
+        if index == 0 {
+            return 0;
+        }
+
         let format_to_size = |format: &Format| match format {
             Format::F32 => 4,
+            Format::U32 => 4,
+
             Format::Vec2 => 8,
+            Format::UVec2 => 8,
+            Format::IVec2 => 8,
+
             Format::Vec3 => 12,
             Format::Vec4 => 16,
             Format::Mat3 => 32,
             Format::Mat4 => 48,
-            Format::U32 => 4,
+
+            Format::R8G8B8A8
+            | Format::R32G32B32A32Float
+            | Format::R32G32Float
+            | Format::D24
+            | Format::R32Uint => {
+                panic!("{format:?} can't be used in buffers.")
+            }
         };
 
-        let size: usize = Self::LAYOUT[0..index + 1].iter().map(format_to_size).sum();
+        let size: usize = Self::LAYOUT[0..index].iter().map(format_to_size).sum();
         let padding: usize = Self::PADDING[0..index].iter().sum();
-        Self::stride() - size + padding
+        size + padding
     }
 
     // TODO: Refactor to Box<[]> avoid heap allocations yes yes
