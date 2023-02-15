@@ -254,7 +254,9 @@ impl Camera {
     }
 
     pub fn translate(&mut self, by: Vec3) {
-        self.position += by * Vec3::new(-1.0, 1.0, -1.0);
+        self.position += by * vec3(-1.0, 1.0, -1.0);
+
+        self.transform *= Mat4::from_translation(by * vec3(-1.0, 1.0, -1.0));
 
         self.view = Mat4::look_at_rh(
             self.position,
