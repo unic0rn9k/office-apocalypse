@@ -17,6 +17,7 @@ mod renderer;
 mod rhi;
 mod scene;
 mod tensor;
+mod terrain;
 
 const WIDTH: u32 = 640;
 const HEIGHT: u32 = 480;

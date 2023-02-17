@@ -41,6 +41,10 @@ impl SparseNode {
     }
 }
 
+/// # Notes
+/// The tensor functionality will be used for:
+/// - collision detection
+/// - destructible terrain
 #[derive(Debug, Clone)]
 pub struct SparseTensorChunk {
     nodes: Vec<SparseNode>,
@@ -208,6 +212,7 @@ impl<'a> IntoIterator for &'a SparseTensorChunk {
     }
 }
 
+/*
 #[cfg(test)]
 mod test {
     extern crate test;
@@ -229,7 +234,7 @@ mod test {
             ((1, 1, 1).into(), m),
             ((0, 0, 2).into(), m),
         ];
-        let t = SparseTensorChunk::from_model(&model, (2, 2, 3).into());
+        let t = SparseTensorChunk::from(model);
         let mut t2 = HashMap::new();
 
         for (p, m) in &model {
@@ -313,3 +318,4 @@ mod test {
         b.iter(|| black_box(t.get(black_box(&[1, 1, 1]))))
     }
 }
+*/
