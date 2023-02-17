@@ -63,6 +63,16 @@ pub struct Light {
     pub color: Vec3,
 }
 
+impl Light {
+    pub fn new(position: Vec3, color: Vec3) -> Self {
+        Self {
+            transform: Mat4::from_translation(position),
+            position,
+            color,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Object {
     pub transform: Mat4,
@@ -254,13 +264,19 @@ impl Camera {
     }
 
     pub fn translate(&mut self, by: Vec3) {
-        self.position += by * Vec3::new(-1.0, 1.0, -1.0);
+        self.position += by * vec3(-1.0, 1.0, -1.0);
+
+        self.transform *= Mat4::from_translation(by * vec3(-1.0, 1.0, -1.0));
 
         self.view = Mat4::look_at_rh(
             self.position,
             self.position + self.direction,
             Vec3::new(0.0, 1.0, 0.0),
         );
+    }
+
+    pub fn translation(&self) -> Vec3 {
+        self.position
     }
 
     pub fn resize(&mut self, width: f32, height: f32) {
@@ -333,6 +349,20 @@ impl SceneGraph {
         SceneNodeId(self.nodes.len() - 1)
     }
 
+    /// Removes all nested entities where id is the parent.
+    pub fn remove_entity(&mut self, id: &SceneNodeId) {
+        self.nodes[id.0].take();
+
+        for node in &mut self.nodes {
+            if node
+                .as_ref()
+                .map(|node| node.parent.0 == id.0)
+                .unwrap_or(false)
+            {
+                node.take();
+            }
+        }
+    }
     pub fn entity(&self, id: &SceneNodeId) -> Option<&Entity> {
         self.nodes[id.0].as_ref().map(|s| &s.base_entity)
     }

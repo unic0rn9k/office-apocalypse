@@ -1,29 +1,38 @@
 #version 460 core
 
+const float PI = 3.14159265359;
+
 const uint MAX_LIGHTS = 256;
 const uint MAX_MATERIALS = 256;
 
 in vec2 texcoord;
 
-uniform sampler2D gFragPosition;
+uniform sampler2D gWorldPosition;
 uniform sampler2D gNormal; 
 uniform sampler2D gAlbedo;
-uniform sampler2D gRoughnessAndMetalness;
+uniform sampler2D gRoughnessAndMetallic;
 
 struct Light {
-    vec3 position;
-    vec3 color;
+    vec4 position;
+    vec4 color;
 };
 
 layout(std140, binding = 0) uniform Lights { Light lights[MAX_LIGHTS]; };
 
+layout(std140, binding = 1) uniform Camera {
+    vec4 position;
+} camera;
+
 out vec4 color;
 
 void main() {
-    vec4 fragPos = texture(gFragPosition, texcoord);
-    vec4 normal  =  texture(gNormal, texcoord);
-    vec4 albedo  = texture(gAlbedo, texcoord);
-    vec2 RoughnessAndMetalness = texture(gRoughnessAndMetalness, texcoord).xy;
+    vec3 worldPosition = texture(gWorldPosition, texcoord).xyz;
+    vec3 normal  =  texture(gNormal, texcoord).xyz;
+    vec3 albedo  = texture(gAlbedo, texcoord).xyz;
 
-    color = albedo;
+    vec2 roughnessAndMetallic = texture(gRoughnessAndMetallic, texcoord).xy;
+    float roughness = roughnessAndMetallic.x;
+    float metallic = roughnessAndMetallic.y;
+
+    color = vec4(albedo, 1.0);
 }
