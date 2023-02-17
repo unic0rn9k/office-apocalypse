@@ -27,7 +27,7 @@ pub struct Game {
 }
 
 impl Game {
-    const SPEED: f32 = 100.0;
+    const SPEED: f32 = 500.0;
     const CAPACITY: u32 = 9;
 
     pub fn new(scene: &mut Scene) -> Self {
@@ -116,8 +116,10 @@ impl Game {
 
         let is_grounded = camera.translation().y == 16.0;
         if keyboard.is_scancode_pressed(Scancode::Space) && is_grounded {
-            camera.translate(vec3(0.0, 2.0, 0.0));
+            self.nframes_since_jump = Some(0);
         }
+
+        self.handle_jump(scene);
 
         // Weapon switch
         if keyboard.is_scancode_pressed(Scancode::Num1) {
@@ -205,9 +207,33 @@ impl Game {
         scene.scene_graph.insert_entity(knife, &scene.camera)
     }
 
-    fn handle_attack(&mut self) {}
+    fn handle_jump(&mut self, scene: &mut Scene) {
+        let camera = scene.camera_mut();
 
-    fn handle_jump(&mut self) {}
+        if let Some(n) = &mut self.nframes_since_jump {
+            *n += 1;
+
+            match *n - 1 {
+                n if n >= 0 && n < 8 => camera.translate(vec3(0.0, 1.5, 0.0)),
+                n if n >= 8 && n < 10 => {}
+                n if n >= 10 && n < 16 => camera.translate(vec3(0.0, -(12.0 / 6.0), 0.0)),
+                _ => self.nframes_since_jump = None,
+            }
+
+            if self.nframes_since_jump.is_none() {
+                camera.translate(vec3(0.0, 16.0 - camera.translation().y, 0.0))
+            }
+        }
+    }
+
+    fn handle_shoot(&mut self, scene: &mut Scene) {
+        if let Weapon::Gun(gun_id, ammo) = &self.weapon && let Some(n) = &mut self.nframes_since_shoot {
+            let gun = scene.scene_graph.object_mut(gun_id).unwrap();
+            gun.transform *= Mat4::from_translation(vec3(0.0, 0.0, -0.5));
+        }
+    }
 
     fn handle_reload(&mut self) {}
+
+    fn handle_attack(&mut self) {}
 }

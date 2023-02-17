@@ -47,7 +47,7 @@ fn main() -> Result<(), String> {
     let mut event_pump = sdl.event_pump()?;
 
     let mut window = setup_window(&video_subsystem);
-    let mut renderer = Renderer::new(&window, false);
+    let mut renderer = Renderer::new(&window, true);
 
     let camera = Camera::new(Vec3::new(0.0, 0.0, -2.0), ASPECT_RATIO);
     let mut scene = Scene::new(camera);
