@@ -136,24 +136,7 @@ impl<'a> DeferredRenderer<'a> {
             device.new_shader_program(&vertex_shader, &pixel_shader)
         };
 
-        // We allocate a bunch of textures and use them for creating a framebuffer
-        let [width, height] = window_size.to_array().map(|v| v as _);
-        let positions = device.new_texture_2d(width, height, Format::R32G32B32A32Float);
-        let normals = device.new_texture_2d(width, height, Format::R32G32B32A32Float);
-        let albedo = device.new_texture_2d(width, height, Format::R32G32B32A32Float);
-        let roughness_and_metalness = device.new_texture_2d(width, height, Format::R32G32Float);
-
-        let depth = device.new_texture_2d(width, height, Format::D24);
-
-        let attachments = [
-            Attachment::Color(positions, 0),
-            Attachment::Color(normals, 1),
-            Attachment::Color(albedo, 2),
-            Attachment::Color(roughness_and_metalness, 3),
-            Attachment::Depth(depth),
-        ];
-
-        let framebuffer = device.new_framebuffer(attachments);
+        let framebuffer = Self::setup_framebuffer(&device, window_size);
 
         Self {
             device,
@@ -245,7 +228,9 @@ impl<'a> DeferredRenderer<'a> {
         device.draw(quad_buffer.len());
     }
 
-    pub fn resize(&mut self, window_size: UVec2) {}
+    pub fn resize(&mut self, window_size: UVec2) {
+        self.framebuffer = Self::setup_framebuffer(&self.device, window_size);
+    }
 
     fn extract_matrices_and_voxels(scene: &mut Scene) -> (Vec<[Mat4; 2]>, Vec<Voxel>) {
         let entities = scene.scene_graph.mutated_entities();
@@ -304,5 +289,25 @@ impl<'a> DeferredRenderer<'a> {
         };
 
         entities.filter_map(lights).collect()
+    }
+
+    fn setup_framebuffer(device: &Device<'a>, window_size: UVec2) -> Framebuffer {
+        let [width, height] = window_size.to_array().map(|v| v as _);
+        let positions = device.new_texture_2d(width, height, Format::R32G32B32A32Float);
+        let normals = device.new_texture_2d(width, height, Format::R32G32B32A32Float);
+        let albedo = device.new_texture_2d(width, height, Format::R32G32B32A32Float);
+        let roughness_and_metalness = device.new_texture_2d(width, height, Format::R32G32Float);
+
+        let depth = device.new_texture_2d(width, height, Format::D24);
+
+        let attachments = [
+            Attachment::Color(positions, 0),
+            Attachment::Color(normals, 1),
+            Attachment::Color(albedo, 2),
+            Attachment::Color(roughness_and_metalness, 3),
+            Attachment::Depth(depth),
+        ];
+
+        device.new_framebuffer(attachments)
     }
 }
