@@ -63,6 +63,16 @@ pub struct Light {
     pub color: Vec3,
 }
 
+impl Light {
+    pub fn new(position: Vec3, color: Vec3) -> Self {
+        Self {
+            transform: Mat4::from_translation(position),
+            position,
+            color,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Object {
     pub transform: Mat4,
@@ -265,6 +275,10 @@ impl Camera {
         );
     }
 
+    pub fn translation(&self) -> Vec3 {
+        self.position
+    }
+
     pub fn resize(&mut self, width: f32, height: f32) {
         self.projection = Mat4::perspective_rh_gl(Self::FOV, width / height, 0.1, 100.0);
     }
@@ -335,6 +349,20 @@ impl SceneGraph {
         SceneNodeId(self.nodes.len() - 1)
     }
 
+    /// Removes all nested entities where id is the parent.
+    pub fn remove_entity(&mut self, id: &SceneNodeId) {
+        self.nodes[id.0].take();
+
+        for node in &mut self.nodes {
+            if node
+                .as_ref()
+                .map(|node| node.parent.0 == id.0)
+                .unwrap_or(false)
+            {
+                node.take();
+            }
+        }
+    }
     pub fn entity(&self, id: &SceneNodeId) -> Option<&Entity> {
         self.nodes[id.0].as_ref().map(|s| &s.base_entity)
     }

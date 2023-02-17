@@ -10,8 +10,8 @@ use crate::game::*;
 use crate::renderer::*;
 use crate::scene::*;
 
-mod format;
 mod ai;
+mod format;
 mod game;
 mod renderer;
 mod rhi;
@@ -92,6 +92,7 @@ fn main() -> Result<(), String> {
 
         let mut systems = GameSystems {
             keyboard: event_pump.keyboard_state(),
+            mouse: event_pump.mouse_state(),
             dt,
         };
 

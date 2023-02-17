@@ -1,8 +1,8 @@
 use std::iter::FilterMap;
 
-use glam::UVec3;
+use glam::{Mat4, UVec3};
 
-use crate::scene::MaterialId;
+use crate::scene::{MaterialId, Model};
 
 #[derive(Clone, Debug)]
 pub enum SparseNode {
@@ -45,6 +45,7 @@ impl SparseNode {
 pub struct SparseTensorChunk {
     nodes: Vec<SparseNode>,
     pub dim: UVec3,
+    pub transform: Mat4,
     //pub lower_bound: UVec3,
 }
 
@@ -151,28 +152,43 @@ impl SparseTensorChunk {
         Self {
             nodes: vec![Nothing(1); dim.to_array().iter().product::<u32>() as usize],
             dim,
-            //lower_bound: UVec3::ZERO,
+            transform: Mat4::IDENTITY, //lower_bound: UVec3::ZERO,
         }
     }
 
-    pub fn from_model(model: &[(UVec3, MaterialId)], dim: UVec3) -> Self {
-        //let mut min_bound = model[0].0;
-        //let mut max_bound = model[0].0;
+    // pub fn from_model(model: &[(UVec3, MaterialId)], dim: UVec3) -> Self {
+    //     //let mut min_bound = model[0].0;
+    //     //let mut max_bound = model[0].0;
 
-        //for (p, _) in model {
-        //    min_bound = p.min(min_bound);
-        //    max_bound = p.max(max_bound);
-        //}
+    //     //for (p, _) in model {
+    //     //    min_bound = p.min(min_bound);
+    //     //    max_bound = p.max(max_bound);
+    //     //}
 
-        //let dim = max_bound - min_bound;
-        let mut tmp = Self::nothing(dim);
-        //tmp.lower_bound = min_bound;
+    //     //let dim = max_bound - min_bound;
+    //     let mut tmp = Self::nothing(dim);
+    //     //tmp.lower_bound = min_bound;
 
-        for (p, m) in model {
-            tmp.insert(*p, Some(*m))
+    //     for (p, m) in model {
+    //         tmp.insert(*p, Some(*m))
+    //     }
+    //     tmp.compress();
+    //     tmp
+    // }
+}
+
+impl From<Model> for SparseTensorChunk {
+    fn from(value: Model) -> Self {
+        let mut temp = Self::nothing(value.size);
+        temp.transform *= value.transform;
+
+        for (position, material_id) in value.positions {
+            let index = UVec3::from_array(position.to_array().map(|v| v as _));
+            temp.insert(index, Some(material_id));
         }
-        tmp.compress();
-        tmp
+
+        temp.compress();
+        temp
     }
 }
 
