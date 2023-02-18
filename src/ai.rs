@@ -11,7 +11,7 @@ pub struct Thing {
 }
 
 impl Thing {
-    // Dejstra path finding (breadth first search)
+    // Dijkstra path finding (breadth first search)
     // The algorithm will spin forever, if there is no path.
     pub fn append_destination(&mut self, dest: UVec3, scene: &SparseTensorChunk) {
         let mut reached = HashMap::<IVec3, Vec<IVec3>>::new();

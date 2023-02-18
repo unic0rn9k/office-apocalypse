@@ -1,6 +1,5 @@
 use glam::*;
 use sdl2::keyboard::{KeyboardState, Scancode};
-use sdl2::mouse::*;
 
 use crate::format::vox;
 use crate::scene::{Camera, Entity, Light, Model, Object, Scene, SceneNode, SceneNodeId, Text};
@@ -12,14 +11,27 @@ pub struct GameSystems<'a> {
     pub dt: f32,
 }
 
+#[derive(Debug, Default)]
+pub struct MouseState {
+    pub has_mouse_left_been_clicked: bool,
+    pub has_mouse_right_been_clicked: bool,
+}
+
 enum Weapon {
     Gun(SceneNodeId, u32),
     Knife(SceneNodeId),
 }
 
+struct Enemy {
+    id: SceneNodeId,
+    health: u32,
+}
+
 pub struct Game {
     health: u32,
     weapon: Weapon,
+    enemies: Vec<Enemy>,
+    nframes_since_spawn: usize,
     nframes_since_jump: Option<usize>,
     nframes_since_shoot: Option<usize>,
     nframes_since_reload: Option<usize>,
@@ -80,9 +92,13 @@ impl Game {
 
         let gun_id = Self::spawn_gun(scene);
 
+        let enemy = Self::spawn_enemy(scene);
+
         Self {
             health: 100,
             weapon: Weapon::Gun(gun_id, Self::CAPACITY),
+            enemies: vec![enemy],
+            nframes_since_spawn: 0,
             nframes_since_jump: None,
             nframes_since_reload: None,
             nframes_since_shoot: None,
@@ -120,6 +136,7 @@ impl Game {
         }
 
         self.handle_jump(scene);
+        self.handle_shoot(scene);
 
         // Weapon switch
         if keyboard.is_scancode_pressed(Scancode::Num1) {
@@ -137,13 +154,16 @@ impl Game {
         match &mut self.weapon {
             Weapon::Gun(gun_id, ammo) => {
                 // Shoot
-                if mouse.left() {
-                    // TODO
+                if mouse.has_mouse_left_been_clicked && *ammo != 0 {
+                    self.nframes_since_shoot = Some(0);
+                    println!("pew");
                 }
 
                 // Reload
-                if keyboard.is_scancode_pressed(Scancode::R) {
+                if keyboard.is_scancode_pressed(Scancode::R) && *ammo != Self::CAPACITY {
                     *ammo = Self::CAPACITY;
+
+                    self.nframes_since_reload = Some(0);
                 }
 
                 // Ammo Counter
@@ -154,7 +174,7 @@ impl Game {
             }
             Weapon::Knife(knife_id) => {
                 // Attack
-                if mouse.left() {
+                if mouse.has_mouse_right_been_clicked {
                     // TODO
                 }
             }
@@ -162,6 +182,20 @@ impl Game {
 
         // Update the fps counter with the latest delta time.
         scene.text[0].text = format!("FPS {:05.1}", 1.0 / dt);
+    }
+
+    fn spawn_enemy(scene: &mut Scene) -> Enemy {
+        let Scene { scene_graph, .. } = scene;
+
+        // This should be cached...
+        let (models, _) = vox::open("./assets/zombie.vox");
+        let zombie = Model::from(models[0].clone());
+
+        // Determine zombie spawn location
+        let transform = Mat4::IDENTITY;
+
+        let id = scene_graph.insert_entity(Object::new(transform, zombie), &scene_graph.root());
+        Enemy { id, health: 100 }
     }
 
     fn spawn_gun(scene: &mut Scene) -> SceneNodeId {
@@ -207,6 +241,8 @@ impl Game {
         scene.scene_graph.insert_entity(knife, &scene.camera)
     }
 
+    fn handle_player(&mut self, scene: &mut Scene) {}
+
     fn handle_jump(&mut self, scene: &mut Scene) {
         let camera = scene.camera_mut();
 
@@ -229,7 +265,16 @@ impl Game {
     fn handle_shoot(&mut self, scene: &mut Scene) {
         if let Weapon::Gun(gun_id, ammo) = &self.weapon && let Some(n) = &mut self.nframes_since_shoot {
             let gun = scene.scene_graph.object_mut(gun_id).unwrap();
-            gun.transform *= Mat4::from_translation(vec3(0.0, 0.0, -0.5));
+
+            *n += 1;
+
+            match *n - 1 {
+                n if n < 2 => gun.transform *= Mat4::from_translation(vec3(-2.0, 0.0, 0.0)),
+                n if n >= 2 && n < 4 => gun.transform *= Mat4::from_translation(vec3(2.0, 0.0, 0.0)),
+                _ => self.nframes_since_shoot = None
+            }
+
+
         }
     }
 

@@ -3,6 +3,7 @@
 use glam::*;
 use sdl2::event::*;
 use sdl2::keyboard::Scancode;
+use sdl2::mouse::MouseButton;
 use sdl2::video::*;
 use sdl2::*;
 
@@ -54,6 +55,11 @@ fn main() -> Result<(), String> {
     let mut scene = Scene::new(camera);
     let mut game = Game::new(&mut scene);
 
+    let mut mouse_state = MouseState {
+        has_mouse_left_been_clicked: false,
+        has_mouse_right_been_clicked: false,
+    };
+
     let mut dt = 1.0;
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -65,6 +71,11 @@ fn main() -> Result<(), String> {
                         renderer.resize(uvec2(width as _, height as _));
                     }
                     WindowEvent::Close => break 'running,
+                    _ => {}
+                },
+                Event::MouseButtonDown { mouse_btn, .. } => match mouse_btn {
+                    MouseButton::Left => mouse_state.has_mouse_left_been_clicked = true,
+                    MouseButton::Right => mouse_state.has_mouse_right_been_clicked = true,
                     _ => {}
                 },
                 Event::KeyDown { scancode, .. } if scancode == Some(Scancode::Escape) => {
@@ -93,11 +104,13 @@ fn main() -> Result<(), String> {
 
         let mut systems = GameSystems {
             keyboard: event_pump.keyboard_state(),
-            mouse: event_pump.mouse_state(),
+            mouse: mouse_state,
             dt,
         };
 
         game.run(&mut systems, &mut scene);
+
+        mouse_state = MouseState::default();
     }
 
     Ok(())
