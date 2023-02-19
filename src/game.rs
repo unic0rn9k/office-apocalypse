@@ -1,6 +1,7 @@
 use glam::*;
 use sdl2::keyboard::{KeyboardState, Scancode};
 
+use crate::ai::Brain;
 use crate::format::vox;
 use crate::scene::{Camera, Entity, Light, Model, Object, Scene, SceneNode, SceneNodeId, Text};
 use crate::tensor::{self, SparseTensorChunk};
@@ -40,7 +41,7 @@ pub struct Game {
     weapon: Weapon,
 
     // Enemy state
-    enemies: Vec<Enemy>,
+    enemies: Vec<(Brain, Enemy)>,
     
     // Animation state
     nframes_since_spawn: usize,
@@ -182,6 +183,10 @@ impl Game {
 
         // Update the fps counter with the latest delta time.
         scene.text[0].text = format!("FPS {:05.1}", 1.0 / dt);
+    }
+
+    fn update_enemies(&mut self, scene: &mut Scene) {
+        
     }
 
     fn spawn_enemy(scene: &mut Scene) -> Enemy {

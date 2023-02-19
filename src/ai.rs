@@ -5,12 +5,12 @@ use glam::{IVec3, UVec3};
 use crate::scene::MaterialId;
 use crate::tensor::SparseTensorChunk;
 
-pub struct Thing {
+pub struct Brain {
     pub position: UVec3,
     route: Vec<UVec3>,
 }
 
-impl Thing {
+impl Brain {
     // Dijkstra path finding (breadth first search)
     // The algorithm will spin forever, if there is no path.
     pub fn append_destination(&mut self, dest: UVec3, scene: &SparseTensorChunk) {
@@ -76,7 +76,7 @@ impl Thing {
 
 #[test]
 fn straight() {
-    let mut thing = Thing {
+    let mut thing = Brain {
         position: UVec3 { x: 0, y: 0, z: 0 },
         route: vec![],
     };
