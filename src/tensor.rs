@@ -76,8 +76,10 @@ impl From<Model> for SparseTensorChunk {
 
         for (position, material_id) in value.positions {
             let index = UVec3::from_array(position.to_array().map(|v| v as _));
+            dim = dim.max(index);
             temp.insert(index, Some(material_id));
         }
+        tmp.dim = dim;
         temp
     }
 }
