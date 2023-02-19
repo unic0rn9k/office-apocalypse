@@ -79,7 +79,7 @@ impl From<Model> for SparseTensorChunk {
             dim = dim.max(index);
             temp.insert(index, Some(material_id));
         }
-        tmp.dim = dim;
+        temp.dim = dim;
         temp
     }
 }
