@@ -1,6 +1,6 @@
 use std::iter::FilterMap;
 
-use glam::{Mat4, UVec3};
+use glam::{Mat4, UVec3, Vec3, Vec4};
 
 use crate::scene::{MaterialId, Model};
 
@@ -211,6 +211,27 @@ impl<'a> IntoIterator for &'a SparseTensorChunk {
         })
     }
 }
+
+pub fn combine(a: SparseTensorChunk, b: SparseTensorChunk) -> SparseTensorChunk {
+    let v4 = |v: Vec3| Vec4::from_array([v.x, v.y, v.z, 1.]);
+    let dim_a = a.transform * v4(a.dim.as_vec3());
+    let dim_b = b.transform * v4(b.dim.as_vec3());
+
+    let dim = dim_a.max(dim_b);
+    assert_eq!(dim[3], 1.);
+    let dim = Vec3::from_slice(&dim.to_array()[0..3]).as_uvec3();
+
+    let mut c = SparseTensorChunk::nothing(dim);
+
+    for (position, material_id) in a.into_iter().chain(b.into_iter()) {
+        let index = UVec3::from_array(position.to_array().map(|v| v as _));
+        c.insert(index, Some(*material_id));
+    }
+
+    c
+}
+
+//fn combine_many(t: &[SparseTensorChunk]) -> SparseTensorChunk
 
 /*
 #[cfg(test)]
