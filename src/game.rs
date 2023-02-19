@@ -153,7 +153,18 @@ impl Game {
         }
 
         match &mut self.weapon {
-            Weapon::Gun(gun_id, ammo) => {
+            Weapon::Gun(id, ammo) => {
+                // Make the gun follow the camera. Doesn't work with the scenegraph for some reason.
+                let position = scene.camera().translation();
+                let direction = scene.camera().direction();
+                let gun = scene.scene_graph.object_mut(id).unwrap();
+                gun.transform = Mat4::from_translation(position);
+                gun.transform *= Mat4::from_translation(vec3(-1.0, 0.0, 2.5));
+                gun.transform *= Mat4::from_scale(vec3(0.05, 0.05, 0.05)); 
+                gun.transform *= Mat4::from_rotation_y(-std::f32::consts::FRAC_PI_2 + 0.1);
+                gun.transform *= Mat4::from_rotation_y(direction.x) * Mat4::from_rotation_x(direction.y);
+
+
                 // Shoot
                 if mouse.has_mouse_left_been_clicked && *ammo != 0 {
                     self.nframes_since_shoot = Some(0);
@@ -186,10 +197,13 @@ impl Game {
     }
 
     fn update_enemies(&mut self, scene: &mut Scene) {
-        
+        for (brain, enemy) in &mut self.enemies {
+            brain.route.clear();
+            // brain.append_destination(scene.camera().translation(), scene);
+        }
     }
 
-    fn spawn_enemy(scene: &mut Scene) -> Enemy {
+    fn spawn_enemy(scene: &mut Scene) -> (Brain, Enemy) {
         let Scene { scene_graph, .. } = scene;
 
         // This should be cached...
@@ -200,7 +214,7 @@ impl Game {
         let transform = Mat4::IDENTITY;
 
         let id = scene_graph.insert_entity(Object::new(transform, zombie), &scene_graph.root());
-        Enemy { id, health: 100 }
+        (Brain {position: uvec3(0, 0, 0), route: vec![]}, Enemy { id, health: 100 })
     }
 
     fn spawn_gun(scene: &mut Scene) -> SceneNodeId {
@@ -236,7 +250,7 @@ impl Game {
         };
 
         let Scene { scene_graph, .. } = scene;
-        let gun_id = scene_graph.insert_entity(gun, &scene.camera);
+        let gun_id = scene_graph.insert_entity(gun, &scene_graph.root());
         let _ = scene_graph.insert_entity(magazine, &gun_id);
 
         gun_id
@@ -300,9 +314,6 @@ impl Game {
         let [yaw, pitch] = [*yaw, *pitch].map(f32::to_radians);
         let direction = vec3(yaw.cos() * pitch.cos(), pitch.sin(), yaw.sin() * pitch.cos());
         scene.camera_mut().set_direction(direction);
-
-        // TODO: Make gun rotate with camera
-
     }
 
     fn jump_animation(&mut self, scene: &mut Scene) {

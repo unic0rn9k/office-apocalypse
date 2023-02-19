@@ -7,7 +7,7 @@ use crate::tensor::SparseTensorChunk;
 
 pub struct Brain {
     pub position: UVec3,
-    route: Vec<UVec3>,
+    pub route: Vec<UVec3>,
 }
 
 impl Brain {
