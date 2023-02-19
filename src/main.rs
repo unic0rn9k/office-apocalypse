@@ -49,6 +49,7 @@ fn main() -> Result<(), String> {
     let mut event_pump = sdl.event_pump()?;
 
     let mut window = setup_window(&video_subsystem);
+    let mut window_size = uvec2(WIDTH, HEIGHT);
     let mut renderer = Renderer::new(&window, true);
 
     let camera = Camera::new(Vec3::new(0.0, 0.0, -2.0), ASPECT_RATIO);
@@ -58,6 +59,8 @@ fn main() -> Result<(), String> {
     let mut mouse_state = MouseState {
         has_mouse_left_been_clicked: false,
         has_mouse_right_been_clicked: false,
+        dx: 0,
+        dy: 0,
     };
 
     let mut dt = 1.0;
@@ -67,12 +70,17 @@ fn main() -> Result<(), String> {
             match event {
                 Event::Window { win_event, .. } => match win_event {
                     WindowEvent::SizeChanged(width, height) => {
+                        window_size = uvec2(width as _, height as _);
                         scene.camera_mut().resize(width as f32, height as f32);
-                        renderer.resize(uvec2(width as _, height as _));
+                        renderer.resize(window_size);
                     }
                     WindowEvent::Close => break 'running,
                     _ => {}
                 },
+                Event::MouseMotion { xrel, yrel, .. } => {
+                    mouse_state.dx = xrel;
+                    mouse_state.dy = yrel;
+                }
                 Event::MouseButtonDown { mouse_btn, .. } => match mouse_btn {
                     MouseButton::Left => mouse_state.has_mouse_left_been_clicked = true,
                     MouseButton::Right => mouse_state.has_mouse_right_been_clicked = true,
@@ -103,6 +111,7 @@ fn main() -> Result<(), String> {
         }
 
         let mut systems = GameSystems {
+            window_size,
             keyboard: event_pump.keyboard_state(),
             mouse: mouse_state,
             dt,

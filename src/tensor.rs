@@ -70,7 +70,7 @@ impl SparseTensorChunk {
         }
     }
 
-    fn idx(&self, i: UVec3) -> Option<usize> {
+    pub fn idx(&self, i: UVec3) -> Option<usize> {
         let i = self.near_idx(i);
         match self.nodes[i] {
             Nothing(_) => None,

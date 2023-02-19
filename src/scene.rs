@@ -242,13 +242,16 @@ impl Camera {
     pub fn new(position: Vec3, aspect_ratio: f32) -> Self {
         let direction = Vec3::new(0.0, 0.0, 1.0);
 
-        Self {
+        let mut temp = Self {
             position,
             transform: Mat4::from_translation(position),
             direction,
-            view: Mat4::look_at_rh(position, position + direction, Vec3::new(0.0, 1.0, 0.0)),
+            view: Mat4::IDENTITY,
             projection: Mat4::perspective_rh_gl(Self::FOV, aspect_ratio, 0.1, 100.0),
-        }
+        };
+
+        temp.update_view();
+        temp
     }
 
     pub fn view(&self) -> &Mat4 {
@@ -265,22 +268,31 @@ impl Camera {
 
     pub fn translate(&mut self, by: Vec3) {
         self.position += by * vec3(-1.0, 1.0, -1.0);
-
         self.transform *= Mat4::from_translation(by * vec3(-1.0, 1.0, -1.0));
-
-        self.view = Mat4::look_at_rh(
-            self.position,
-            self.position + self.direction,
-            Vec3::new(0.0, 1.0, 0.0),
-        );
+        self.update_view();
     }
 
     pub fn translation(&self) -> Vec3 {
         self.position
     }
 
+    pub fn direction(&self) -> Vec3 {
+        self.direction
+    }
+
+    pub fn set_direction(&mut self, direction: Vec3) {
+        self.direction = direction;
+        self.update_view();
+    }
+
     pub fn resize(&mut self, width: f32, height: f32) {
         self.projection = Mat4::perspective_rh_gl(Self::FOV, width / height, 0.1, 100.0);
+    }
+
+    fn update_view(&mut self) {
+        let camera_right = vec3(0.0, 1.0, 0.0).cross(self.direction).normalize();
+        let camera_up = self.direction.cross(camera_right).normalize();
+        self.view = Mat4::look_at_rh(self.position, self.position + self.direction, camera_up);
     }
 }
 
@@ -365,6 +377,14 @@ impl SceneGraph {
     }
     pub fn entity(&self, id: &SceneNodeId) -> Option<&Entity> {
         self.nodes[id.0].as_ref().map(|s| &s.base_entity)
+    }
+
+    pub fn object(&self, id: &SceneNodeId) -> Option<&Object> {
+        let entity = self.entity(id)?;
+        match entity {
+            Entity::Object(o) => Some(o),
+            _ => panic!("Found {id:?}, but wasn't an object"),
+        }
     }
 
     pub fn object_mut(&mut self, id: &SceneNodeId) -> Option<&mut Object> {

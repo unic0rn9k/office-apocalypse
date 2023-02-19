@@ -5,17 +5,21 @@ use crate::format::vox;
 use crate::scene::{Camera, Entity, Light, Model, Object, Scene, SceneNode, SceneNodeId, Text};
 use crate::tensor::SparseTensorChunk;
 
+#[derive(Debug, Default)]
+pub struct MouseState {
+    pub has_mouse_left_been_clicked: bool,
+    pub has_mouse_right_been_clicked: bool,
+    pub dx: i32,
+    pub dy: i32,
+}
+
 pub struct GameSystems<'a> {
+    pub window_size: UVec2,
     pub keyboard: KeyboardState<'a>,
     pub mouse: MouseState,
     pub dt: f32,
 }
 
-#[derive(Debug, Default)]
-pub struct MouseState {
-    pub has_mouse_left_been_clicked: bool,
-    pub has_mouse_right_been_clicked: bool,
-}
 
 enum Weapon {
     Gun(SceneNodeId, u32),
@@ -28,9 +32,17 @@ struct Enemy {
 }
 
 pub struct Game {
+    yaw: f32,
+    pitch: f32,
+
+    // Player state
     health: u32,
     weapon: Weapon,
+
+    // Enemy state
     enemies: Vec<Enemy>,
+    
+    // Animation state
     nframes_since_spawn: usize,
     nframes_since_jump: Option<usize>,
     nframes_since_shoot: Option<usize>,
@@ -90,14 +102,18 @@ impl Game {
 
         scene.camera_mut().translate(vec3(0.0, 16.0, 0.0));
 
-        let gun_id = Self::spawn_gun(scene);
+        let gun = Self::spawn_gun(scene);
 
         let enemy = Self::spawn_enemy(scene);
 
         Self {
+            yaw: -90.0,
+            pitch: 0.0,
+
             health: 100,
-            weapon: Weapon::Gun(gun_id, Self::CAPACITY),
+            weapon: Weapon::Gun(gun, Self::CAPACITY),
             enemies: vec![enemy],
+            
             nframes_since_spawn: 0,
             nframes_since_jump: None,
             nframes_since_reload: None,
@@ -111,32 +127,11 @@ impl Game {
         let mouse = &systems.mouse;
         let dt = systems.dt;
 
-        let camera = scene.camera_mut();
-
-        // Controller
-        if keyboard.is_scancode_pressed(Scancode::W) {
-            camera.translate(Vec3::new(0.0, 0.0, -Self::SPEED) * dt);
-        }
-
-        if keyboard.is_scancode_pressed(Scancode::A) {
-            camera.translate(Vec3::new(-Self::SPEED, 0.0, 0.0) * dt);
-        }
-
-        if keyboard.is_scancode_pressed(Scancode::S) {
-            camera.translate(Vec3::new(0.0, 0.0, Self::SPEED) * dt);
-        }
-
-        if keyboard.is_scancode_pressed(Scancode::D) {
-            camera.translate(Vec3::new(Self::SPEED, 0.0, 0.0) * dt);
-        }
-
-        let is_grounded = camera.translation().y == 16.0;
-        if keyboard.is_scancode_pressed(Scancode::Space) && is_grounded {
-            self.nframes_since_jump = Some(0);
-        }
-
-        self.handle_jump(scene);
+        self.handle_movement(systems, scene);
         self.handle_shoot(scene);
+
+        // self.shoot_animation(scene);
+        self.jump_animation(scene);
 
         // Weapon switch
         if keyboard.is_scancode_pressed(Scancode::Num1) {
@@ -241,9 +236,55 @@ impl Game {
         scene.scene_graph.insert_entity(knife, &scene.camera)
     }
 
-    fn handle_player(&mut self, scene: &mut Scene) {}
+    fn handle_movement(&mut self, systems: &GameSystems, scene: &mut Scene) {
+        let keyboard = &systems.keyboard;
+        let mouse = &systems.mouse;
+        let dt = systems.dt;
 
-    fn handle_jump(&mut self, scene: &mut Scene) {
+        let camera = scene.camera_mut();
+
+        // Walk around with WASD keys
+        if keyboard.is_scancode_pressed(Scancode::W) {
+            camera.translate(Vec3::new(0.0, 0.0, -Self::SPEED) * dt);
+        }
+
+        if keyboard.is_scancode_pressed(Scancode::A) {
+            camera.translate(Vec3::new(-Self::SPEED, 0.0, 0.0) * dt);
+        }
+
+        if keyboard.is_scancode_pressed(Scancode::S) {
+            camera.translate(Vec3::new(0.0, 0.0, Self::SPEED) * dt);
+        }
+
+        if keyboard.is_scancode_pressed(Scancode::D) {
+            camera.translate(Vec3::new(Self::SPEED, 0.0, 0.0) * dt);
+        }
+
+        // Like in real life we can only jump if we are grounded.
+        let is_grounded = camera.translation().y == 16.0;
+        if keyboard.is_scancode_pressed(Scancode::Space) && is_grounded {
+            self.nframes_since_jump = Some(0);
+        }
+
+        // Look around using the mouse
+        let Self {yaw, pitch, ..} = self;
+        *yaw += mouse.dx as f32;
+        *pitch -= mouse.dy as f32;
+
+        match *pitch {
+            p if p > 89.0 => *pitch = 89.0,
+            p if p < -89.0 => *pitch = -89.0,
+            _ => {}
+        }
+
+        // The trigometric functions work in radians
+        let [yaw, pitch] = [*yaw, *pitch].map(f32::to_radians);
+        let mut direction = vec3(yaw.cos() * pitch.cos(), pitch.sin(), yaw.sin() * pitch.cos());
+        scene.camera_mut().set_direction(direction);
+
+    }
+
+    fn jump_animation(&mut self, scene: &mut Scene) {
         let camera = scene.camera_mut();
 
         if let Some(n) = &mut self.nframes_since_jump {
@@ -252,7 +293,7 @@ impl Game {
             match *n - 1 {
                 n if n >= 0 && n < 8 => camera.translate(vec3(0.0, 1.5, 0.0)),
                 n if n >= 8 && n < 10 => {}
-                n if n >= 10 && n < 16 => camera.translate(vec3(0.0, -(12.0 / 6.0), 0.0)),
+                n if n >= 10 && n < 14 => camera.translate(vec3(0.0, -(12.0 / 4.0), 0.0)),
                 _ => self.nframes_since_jump = None,
             }
 
@@ -263,8 +304,16 @@ impl Game {
     }
 
     fn handle_shoot(&mut self, scene: &mut Scene) {
+        let camera = scene.camera().clone();
+        let Scene { scene_graph, .. } = scene;
+
         if let Weapon::Gun(gun_id, ammo) = &self.weapon && let Some(n) = &mut self.nframes_since_shoot {
-            let gun = scene.scene_graph.object_mut(gun_id).unwrap();
+            let gun = scene_graph.object_mut(gun_id).unwrap();
+
+            if *n == 0 {
+                let ray = Ray::with_len(vec3(0.0, 0.0, 0.0), camera.direction(), 100.0);
+                
+            }
 
             *n += 1;
 
@@ -281,4 +330,59 @@ impl Game {
     fn handle_reload(&mut self) {}
 
     fn handle_attack(&mut self) {}
+}
+
+struct Ray {
+    origin: Vec3,
+    direction: Vec3,
+    len: f32,
+}
+
+impl Ray {
+    pub fn new(origin: Vec3, direction: Vec3) -> Self {
+        Self {
+            origin,
+            direction,
+            len: f32::INFINITY,
+        }
+    }
+
+    pub fn with_len(origin: Vec3, direction: Vec3, len: f32) -> Self {
+        Self {
+            origin,
+            direction,
+            len,
+        }
+    }
+
+    /// Checks if a ray intersects with an entity in the scene
+    pub fn cast_entity(&self, steps: f32, scene: &mut Scene) -> Option<SceneNodeId> {
+        let Scene {
+            scene_graph,
+            terrain,
+            ..
+        } = scene;
+
+        // First we find all chunks where the ray intersects the scene.
+        let mut t = 0.0;
+        while t <= self.len {
+            // The location in world-space.
+            let mut v = self.origin + self.direction * t;
+
+            // We convert the vector to a UVec3 eg. voxel-space.
+            let mut v_voxel = uvec3(0, 0, 0);
+
+            for chunk in &scene.terrain {
+                if chunk.transform == Mat4::IDENTITY {
+                    chunk.idx(v_voxel);
+                }
+            }
+
+            t += self.len / steps;
+        }
+
+        // Then we sort all these voxels, so that the first hit
+
+        todo!()
+    }
 }
