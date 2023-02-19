@@ -206,17 +206,25 @@ impl Game {
                 scene.set_materials(materials);
             }
 
-            let gun_model = Model::from(models[3].clone());
-            let mut gun = Object::new(Mat4::IDENTITY, gun_model);
-            gun.transform *= Mat4::from_translation(vec3(-0.5, -3.0, 10.25));
-            gun.transform *= Mat4::from_scale(vec3(0.1, 0.1, 0.1));
-            gun.transform *= Mat4::from_rotation_y(-std::f32::consts::FRAC_PI_2);
+            // To have decent rotations we must map the coordinates from 0..40 to -20..20 which moves the origin to the center of the chunk.
+            let mut model = models[3].clone();
+            model.positions.iter_mut().for_each(|(position, _)| {
+                *position -= vec3(40.0, 40.0, 40.0);
+            });
 
-            let magazine_model = Model::from(models[2].clone());
+            let gun_model = Model::from(model);
+            let mut gun = Object::new(Mat4::IDENTITY, gun_model);
+            gun.transform *= Mat4::from_translation(vec3(0.0, 0.0, 0.0));
+            // gun.transform *= Mat4::from_scale(vec3(0.1, 0.1, 0.1));
+
+            let mut magazine_model = models[2].clone();
+            magazine_model.positions.iter_mut().for_each(|(position, _)| {
+                *position -= vec3(40.0, 40.0, 40.0);
+            });
 
             let magazine = Object::new(
                 Mat4::from_translation(vec3(-37.0, -2.0, 20.0)),
-                magazine_model,
+                Model::from(magazine_model),
             );
 
             (gun, magazine)
@@ -246,25 +254,24 @@ impl Game {
         let mouse = &systems.mouse;
         let dt = systems.dt;
 
-        let camera = scene.camera_mut();
-
+        let camera = *scene.camera();
         // Walk around with WASD keys
         // TODO fix that we are moving slower when pointing upwards
         let speed = vec3(Self::SPEED, 0.0, Self::SPEED);
         if keyboard.is_scancode_pressed(Scancode::W) {
-            camera.translate(camera.direction() * speed);
+            scene.camera_mut().translate(camera.direction() * speed);
         }
 
         if keyboard.is_scancode_pressed(Scancode::A) {
-            camera.translate(-camera.right() * speed);
+            scene.camera_mut().translate(-camera.right() * speed);
         }   
 
         if keyboard.is_scancode_pressed(Scancode::S) {
-            camera.translate(-camera.direction() * speed);
+            scene.camera_mut().translate(-camera.direction() * speed);
         }
 
         if keyboard.is_scancode_pressed(Scancode::D) {
-            camera.translate(camera.right() * speed);
+            scene.camera_mut().translate(camera.right() * speed);
         }
 
         // Like in real life we can only jump if we are grounded.
@@ -286,7 +293,7 @@ impl Game {
 
         // We must convert to radians since the trigometric functions only work in radians
         let [yaw, pitch] = [*yaw, *pitch].map(f32::to_radians);
-        let mut direction = vec3(yaw.cos() * pitch.cos(), pitch.sin(), yaw.sin() * pitch.cos());
+        let direction = vec3(yaw.cos() * pitch.cos(), pitch.sin(), yaw.sin() * pitch.cos());
         scene.camera_mut().set_direction(direction);
 
         // TODO: Make gun rotate with camera
@@ -300,7 +307,7 @@ impl Game {
             *n += 1;
 
             match *n - 1 {
-                n if n >= 0 && n < 8 => camera.translate(vec3(0.0, 1.5, 0.0)),
+                n if n < 8 => camera.translate(vec3(0.0, 1.5, 0.0)),
                 n if n >= 8 && n < 10 => {}
                 n if n >= 10 && n < 14 => camera.translate(vec3(0.0, -(12.0 / 4.0), 0.0)),
                 _ => self.nframes_since_jump = None,
@@ -313,7 +320,7 @@ impl Game {
     }
 
     fn handle_shoot(&mut self, scene: &mut Scene) {
-        let camera = scene.camera().clone();
+        let camera = *scene.camera();
         let Scene { scene_graph, .. } = scene;
 
         if let Weapon::Gun(gun_id, ammo) = &self.weapon && let Some(n) = &mut self.nframes_since_shoot {

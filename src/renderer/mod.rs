@@ -100,7 +100,7 @@ pub struct Renderer<'a> {
 
 impl<'a> Renderer<'a> {
     pub fn new(window: &Window, vsync: bool) -> Self {
-        let _instance = Instance::new(window, true);
+        let _instance = Instance::new(window, false);
         let device = _instance.new_device();
         let swapchain = _instance.new_swapchain(vsync);
 
