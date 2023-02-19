@@ -90,7 +90,7 @@ fn straight() {
         route: vec![],
     };
 
-    let mut env = SparseTensorChunk::nothing(UVec3 { x: 4, y: 4, z: 4 });
+    let mut env = SparseTensorChunk::nothing();
 
     //env.insert(UVec3 { x: 1, y: 0, z: 0 }, Some(MaterialId(0)));
 

@@ -69,7 +69,7 @@ impl Game {
             let player_block = terrain::closest_block(scene.camera().position);
             let map_block = terrain::MapBlock::from_scratch(player_block);
             let mut terrain = map_block.gen_terrain(terrain::EMPTY_MASK);
-            terrain.compress();
+            //terrain.compress();
             scene.terrain.push(terrain);
         }
 
@@ -381,7 +381,7 @@ impl Ray {
 
             for chunk in &scene.terrain {
                 if chunk.transform == Mat4::IDENTITY {
-                    chunk.idx(v_voxel);
+                    //chunk.idx(v_voxel);
                 }
             }
 
