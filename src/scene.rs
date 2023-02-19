@@ -229,7 +229,7 @@ impl Scene {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
-    position: Vec3,
+    pub position: Vec3,
     direction: Vec3,
     up: Vec3,
     transform: Mat4,

@@ -212,6 +212,7 @@ impl<'a> IntoIterator for &'a SparseTensorChunk {
     }
 }
 
+/// *DOES NOT AUTO-COMPRESS*
 pub fn combine(a: SparseTensorChunk, b: SparseTensorChunk) -> SparseTensorChunk {
     let v4 = |v: Vec3| Vec4::from_array([v.x, v.y, v.z, 1.]);
     let v3 = |v: Vec4| Vec3::from_slice(&v.to_array()[0..3]).as_uvec3();
