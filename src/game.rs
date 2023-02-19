@@ -3,7 +3,7 @@ use sdl2::keyboard::{KeyboardState, Scancode};
 
 use crate::format::vox;
 use crate::scene::{Camera, Entity, Light, Model, Object, Scene, SceneNode, SceneNodeId, Text};
-use crate::tensor::SparseTensorChunk;
+use crate::tensor::{self, SparseTensorChunk};
 
 #[derive(Debug, Default)]
 pub struct MouseState {
@@ -59,18 +59,23 @@ impl Game {
         {
             let (models, _) = vox::open("./assets/kitchen.vox");
             let kitchen = Model::from(models[0].clone());
+            //assert_eq!(kitchen.transform, Mat4::IDENTITY);
+
+            let mut src_chunk = SparseTensorChunk::nothing(UVec3::ZERO);
 
             let mut chunk = SparseTensorChunk::from(kitchen);
             chunk.transform *= Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
 
-            scene.terrain.push(chunk);
+            src_chunk = tensor::combine(src_chunk, chunk);
 
             let (models, _) = vox::open("./assets/kitchen_island.vox");
             let kitchen_island = Model::from(models[0].clone());
 
             let mut chunk = SparseTensorChunk::from(kitchen_island);
             chunk.transform *= Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
-            scene.terrain.push(chunk);
+
+            src_chunk = tensor::combine(src_chunk, chunk);
+            scene.terrain.push(src_chunk);
 
             let (models, _) = vox::open("./assets/floor.vox");
             let mut floor = SparseTensorChunk::from(Model::from(models[0].clone()));
@@ -323,7 +328,7 @@ impl Game {
 
             match *n - 1 {
                 n if n < 2 => gun.transform *= Mat4::from_translation(vec3(-2.0, 0.0, 0.0)),
-                n if n >= 2 && n < 4 => gun.transform *= Mat4::from_translation(vec3(2.0, 0.0, 0.0)),
+                n if (2..4).contains(&n) => gun.transform *= Mat4::from_translation(vec3(2.0, 0.0, 0.0)),
                 _ => self.nframes_since_shoot = None
             }
 
