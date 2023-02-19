@@ -230,8 +230,9 @@ impl Scene {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
     position: Vec3,
-    transform: Mat4,
     direction: Vec3,
+    up: Vec3,
+    transform: Mat4,
     view: Mat4,
     projection: Mat4,
 }
@@ -240,12 +241,14 @@ impl Camera {
     const FOV: f32 = std::f32::consts::FRAC_PI_2;
 
     pub fn new(position: Vec3, aspect_ratio: f32) -> Self {
-        let direction = Vec3::new(0.0, 0.0, 1.0);
+        let direction = vec3(0.0, 0.0, 1.0);
+        let up = vec3(0.0, 1.0, 0.0);
 
         let mut temp = Self {
             position,
-            transform: Mat4::from_translation(position),
             direction,
+            up,
+            transform: Mat4::from_translation(position),
             view: Mat4::IDENTITY,
             projection: Mat4::perspective_rh_gl(Self::FOV, aspect_ratio, 0.1, 100.0),
         };
@@ -266,10 +269,14 @@ impl Camera {
         self.projection * self.view
     }
 
-    pub fn translate(&mut self, by: Vec3) {
-        self.position += by * vec3(-1.0, 1.0, -1.0);
-        self.transform *= Mat4::from_translation(by * vec3(-1.0, 1.0, -1.0));
+    pub fn set_translation(&mut self, position: Vec3) {
+        self.position = position;
+        self.transform *= Mat4::from_translation(position);
         self.update_view();
+    }
+
+    pub fn translate(&mut self, by: Vec3) {
+        self.set_translation(self.position + by);
     }
 
     pub fn translation(&self) -> Vec3 {
@@ -280,8 +287,16 @@ impl Camera {
         self.direction
     }
 
+    pub fn up(&self) -> Vec3 {
+        self.up
+    }
+
+    pub fn right(&self) -> Vec3 {
+        self.direction.cross(self.up)
+    }
+
     pub fn set_direction(&mut self, direction: Vec3) {
-        self.direction = direction;
+        self.direction = direction.normalize();
         self.update_view();
     }
 
@@ -290,9 +305,9 @@ impl Camera {
     }
 
     fn update_view(&mut self) {
-        let camera_right = vec3(0.0, 1.0, 0.0).cross(self.direction).normalize();
-        let camera_up = self.direction.cross(camera_right).normalize();
-        self.view = Mat4::look_at_rh(self.position, self.position + self.direction, camera_up);
+        let right = vec3(0.0, 1.0, 0.0).cross(self.direction).normalize();
+        self.up = self.direction.cross(right).normalize();
+        self.view = Mat4::look_at_rh(self.position, self.position + self.direction, self.up);
     }
 }
 

@@ -51,7 +51,7 @@ pub struct Game {
 }
 
 impl Game {
-    const SPEED: f32 = 500.0;
+    const SPEED: f32 = 1.0;
     const CAPACITY: u32 = 9;
 
     pub fn new(scene: &mut Scene) -> Self {
@@ -244,20 +244,22 @@ impl Game {
         let camera = scene.camera_mut();
 
         // Walk around with WASD keys
+        // TODO fix that we are moving slower when pointing upwards
+        let speed = vec3(Self::SPEED, 0.0, Self::SPEED);
         if keyboard.is_scancode_pressed(Scancode::W) {
-            camera.translate(Vec3::new(0.0, 0.0, -Self::SPEED) * dt);
+            camera.translate(camera.direction() * speed);
         }
 
         if keyboard.is_scancode_pressed(Scancode::A) {
-            camera.translate(Vec3::new(-Self::SPEED, 0.0, 0.0) * dt);
-        }
+            camera.translate(-camera.right() * speed);
+        }   
 
         if keyboard.is_scancode_pressed(Scancode::S) {
-            camera.translate(Vec3::new(0.0, 0.0, Self::SPEED) * dt);
+            camera.translate(-camera.direction() * speed);
         }
 
         if keyboard.is_scancode_pressed(Scancode::D) {
-            camera.translate(Vec3::new(Self::SPEED, 0.0, 0.0) * dt);
+            camera.translate(camera.right() * speed);
         }
 
         // Like in real life we can only jump if we are grounded.
@@ -277,10 +279,12 @@ impl Game {
             _ => {}
         }
 
-        // The trigometric functions work in radians
+        // We must convert to radians since the trigometric functions only work in radians
         let [yaw, pitch] = [*yaw, *pitch].map(f32::to_radians);
         let mut direction = vec3(yaw.cos() * pitch.cos(), pitch.sin(), yaw.sin() * pitch.cos());
         scene.camera_mut().set_direction(direction);
+
+        // TODO: Make gun rotate with camera
 
     }
 
