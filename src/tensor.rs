@@ -34,9 +34,9 @@ impl SparseTensorChunk {
         self.data.get_mut(&i)
     }
 
-    pub fn nothing() -> Self {
+    pub fn nothing(dim: UVec3) -> Self {
         Self {
-            dim: UVec3::ZERO,
+            dim,
             data: HashMap::new(),
             transform: Mat4::IDENTITY, //lower_bound: UVec3::ZERO,
         }
@@ -69,17 +69,13 @@ impl SparseTensorChunk {
 
 impl From<Model> for SparseTensorChunk {
     fn from(value: Model) -> Self {
-        let mut temp = Self::nothing();
+        let mut temp = Self::nothing(value.size);
         temp.transform *= value.transform;
-
-        let mut dim = UVec3::ZERO;
 
         for (position, material_id) in value.positions {
             let index = UVec3::from_array(position.to_array().map(|v| v as _));
-            dim = dim.max(index);
             temp.insert(index, Some(material_id));
         }
-        temp.dim = dim;
         temp
     }
 }
@@ -98,8 +94,8 @@ pub fn combine(a: SparseTensorChunk, b: SparseTensorChunk) -> SparseTensorChunk 
     let v4 = |v: Vec3| Vec4::from_array([v.x, v.y, v.z, 1.]);
     let v3 = |v: Vec4| Vec3::from_slice(&v.to_array()[0..3]).as_uvec3();
 
-    let mut c = SparseTensorChunk::nothing();
     let mut dim = UVec3::ZERO;
+    let mut c = SparseTensorChunk::nothing(dim);
 
     let map = |t: Mat4| move |(a, b): (UVec3, MaterialId)| (v3(t * v4(a.as_vec3())), b);
 

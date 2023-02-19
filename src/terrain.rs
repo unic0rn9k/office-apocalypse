@@ -132,7 +132,7 @@ impl MapBlock {
     }
 
     pub fn gen_terrain(&self, mask: TerrainMask) -> SparseTensorChunk {
-        let mut ret = SparseTensorChunk::nothing();
+        let mut ret = SparseTensorChunk::nothing(UVec3::ZERO);
 
         for y in 0..FOV {
             for x in 0..FOV {

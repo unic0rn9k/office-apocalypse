@@ -68,8 +68,10 @@ impl Game {
 
             let player_block = terrain::closest_block(scene.camera().position);
             let map_block = terrain::MapBlock::from_scratch(player_block);
-            let mut terrain = map_block.gen_terrain(terrain::EMPTY_MASK);
-            //terrain.compress();
+            let terrain = map_block.gen_terrain(terrain::EMPTY_MASK);
+            for n in &terrain{
+                println!("{n:?}");
+            }
             scene.terrain.push(terrain);
         }
 
