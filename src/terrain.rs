@@ -59,9 +59,13 @@ impl Asset {
 }
 
 fn blk_pos(x: usize, y: usize, center: Vec3) -> Vec3 {
-    let min = FOV as f32 / -2.;
-    let min = vec3(min, center.y, min);
-    let p = vec3(x as f32 * FOV as f32, center.y, y as f32 * FOV as f32);
+    let min = (FOV as f32 / -2.) * CUBICAL_SIZE as f32;
+    let min = vec3(min, 0., min);
+    let p = vec3(
+        x as f32 * CUBICAL_SIZE as f32,
+        0.,
+        y as f32 * CUBICAL_SIZE as f32,
+    );
 
     center + min + p
 }
@@ -126,11 +130,10 @@ impl std::fmt::Debug for MapBlock {
 #[test]
 fn map() {
     let a = vec3(1., 2., 3.);
-    let b = vec3(2., 0., 1.);
-    let c = a + b;
+    let b = vec3(2., 2., 4.);
 
     let a_map = MapBlock::from_scratch(a);
-    let b_map = MapBlock::from_scratch(c);
+    let b_map = MapBlock::from_scratch(b);
 
     println!("{a_map:?}");
     println!();
@@ -145,6 +148,16 @@ fn map() {
         }
         println!()
     }
+}
+
+#[test]
+fn block_coordinates() {
+    assert_eq!(blk_pos(5, 5, vec3(0., 0., 0.)), vec3(0., 0., 0.));
+    assert_eq!(blk_pos(5, 5, vec3(1., 1., 1.)), vec3(1., 1., 1.));
+    assert_eq!(
+        blk_pos(7, 6, vec3(0., 1., 40.)),
+        vec3(2. * CUBICAL_SIZE as f32, 1., 2. * CUBICAL_SIZE as f32)
+    );
 }
 
 #[test]
