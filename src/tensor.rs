@@ -214,18 +214,26 @@ impl<'a> IntoIterator for &'a SparseTensorChunk {
 
 pub fn combine(a: SparseTensorChunk, b: SparseTensorChunk) -> SparseTensorChunk {
     let v4 = |v: Vec3| Vec4::from_array([v.x, v.y, v.z, 1.]);
+    let v3 = |v: Vec4| Vec3::from_slice(&v.to_array()[0..3]).as_uvec3();
+
     let dim_a = a.transform * v4(a.dim.as_vec3());
     let dim_b = b.transform * v4(b.dim.as_vec3());
 
     let dim = dim_a.max(dim_b);
     assert_eq!(dim[3], 1.);
-    let dim = Vec3::from_slice(&dim.to_array()[0..3]).as_uvec3();
+    let dim = v3(dim);
 
     let mut c = SparseTensorChunk::nothing(dim);
 
-    for (position, material_id) in a.into_iter().chain(b.into_iter()) {
+    let map = |t: Mat4| move |(a, b): &(UVec3, MaterialId)| (v3(t * v4(a.as_vec3())), *b);
+
+    for (position, material_id) in a
+        .into_iter()
+        .map(map(a.transform))
+        .chain(b.into_iter().map(map(b.transform)))
+    {
         let index = UVec3::from_array(position.to_array().map(|v| v as _));
-        c.insert(index, Some(*material_id));
+        c.insert(index, Some(material_id));
     }
 
     c
