@@ -2,19 +2,19 @@ use glam::*;
 
 #[derive(Debug)]
 pub struct FontGlyph {
-    id: char,
-    position: UVec2,
-    size: UVec2,
-    offset: IVec2,
+    pub id: char,
+    pub position: UVec2,
+    pub size: UVec2,
+    pub offset: IVec2,
 }
 
 #[derive(Debug)]
 pub struct FontFace {
-    width: usize,
-    height: usize,
-    line_height: u32,
-    base: u32,
-    glyphs: Vec<FontGlyph>,
+    pub width: usize,
+    pub height: usize,
+    pub line_height: u32,
+    pub base: u32,
+    pub glyphs: Vec<FontGlyph>,
 }
 
 pub fn parse(bytes: &[u8]) -> FontFace {

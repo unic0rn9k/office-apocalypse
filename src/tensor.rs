@@ -2,7 +2,7 @@ use std::iter::FilterMap;
 
 use glam::{Mat4, UVec3, Vec3, Vec4};
 
-use crate::scene::{MaterialId, Model};
+use crate::scene::{MaterialId, Model, Object};
 
 #[derive(Clone, Debug)]
 pub enum SparseNode {
@@ -70,7 +70,7 @@ impl SparseTensorChunk {
         }
     }
 
-    pub fn idx(&self, i: UVec3) -> Option<usize> {
+    fn idx(&self, i: UVec3) -> Option<usize> {
         let i = self.near_idx(i);
         match self.nodes[i] {
             Nothing(_) => None,
@@ -96,7 +96,7 @@ impl SparseTensorChunk {
         }
     }
 
-    pub fn near_idx(&self, i_: UVec3) -> usize {
+    fn near_idx(&self, i_: UVec3) -> usize {
         let i = i_[0] + i_[1] * self.dim[0] + i_[2] * self.dim[1] * self.dim[0];
 
         if i > self.dim.to_array().iter().product() {
@@ -193,6 +193,22 @@ impl From<Model> for SparseTensorChunk {
 
         temp.compress();
         temp
+    }
+}
+
+impl From<Object> for SparseTensorChunk {
+    fn from(mut value: Object) -> Self {
+        if value.transform == Mat4::IDENTITY {
+            SparseTensorChunk::from(value.model)
+        } else {
+            value
+                .model
+                .positions
+                .iter_mut()
+                .for_each(|(position, _)| *position = value.transform.transform_point3(*position));
+
+            SparseTensorChunk::from(value.model)
+        }
     }
 }
 

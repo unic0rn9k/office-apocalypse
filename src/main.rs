@@ -1,4 +1,5 @@
 #![feature(iter_array_chunks, let_chains, slice_as_chunks, array_chunks, test)]
+#![feature(option_result_contains)]
 
 use glam::*;
 use sdl2::event::*;

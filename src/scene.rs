@@ -311,7 +311,7 @@ impl Camera {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SceneNodeId(usize);
 
 #[derive(Debug)]
@@ -436,10 +436,11 @@ impl SceneGraph {
         self.nodes[id.0].as_ref().map(|s| &s.mutated_entity)
     }
 
-    pub fn mutated_entities(&self) -> impl Iterator<Item = &Entity> {
-        self.nodes
-            .iter()
-            .filter_map(|node| node.as_ref().map(|node| &node.mutated_entity))
+    pub fn mutated_entities(&self) -> impl Iterator<Item = (SceneNodeId, &Entity)> {
+        self.nodes.iter().enumerate().filter_map(|(i, node)| {
+            node.as_ref()
+                .map(|node| (SceneNodeId(i), &node.mutated_entity))
+        })
     }
 }
 
