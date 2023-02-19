@@ -79,6 +79,11 @@ impl SparseTensorChunk {
     }
 
     pub fn remove(&mut self, i: UVec3) {
+        assert!(
+            i.x < self.dim.x && i.y < self.dim.y && i.z < self.dim.z,
+            "{i:?} out of bounds {:?}",
+            self.dim
+        );
         if let Some(i) = self.idx(i) {
             let mut has_neighbor = false;
             if let Some(Nothing(n)) = self.nodes.get_mut(i + 1) {
@@ -122,6 +127,11 @@ impl SparseTensorChunk {
     }
 
     pub fn insert(&mut self, i: UVec3, vox: Option<MaterialId>) {
+        assert!(
+            i.x < self.dim.x && i.y < self.dim.y && i.z < self.dim.z,
+            "{i:?} out of bounds {:?}",
+            self.dim
+        );
         let node = if let Some(v) = vox {
             Voxel((i, v))
         } else {

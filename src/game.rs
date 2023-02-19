@@ -5,6 +5,7 @@ use crate::ai::Brain;
 use crate::format::vox;
 use crate::scene::{Camera, Entity, Light, Model, Object, Scene, SceneNode, SceneNodeId, Text};
 use crate::tensor::{self, SparseTensorChunk};
+use crate::terrain;
 
 #[derive(Debug, Default)]
 pub struct MouseState {
@@ -58,26 +59,6 @@ impl Game {
     pub fn new(scene: &mut Scene) -> Self {
         // Terrain
         {
-            let (models, _) = vox::open("./assets/kitchen.vox");
-            let kitchen = Model::from(models[0].clone());
-            //assert_eq!(kitchen.transform, Mat4::IDENTITY);
-
-            let mut src_chunk = SparseTensorChunk::nothing(UVec3::ZERO);
-
-            let mut chunk = SparseTensorChunk::from(kitchen);
-            chunk.transform *= Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
-
-            src_chunk = tensor::combine(src_chunk, chunk);
-
-            let (models, _) = vox::open("./assets/kitchen_island.vox");
-            let kitchen_island = Model::from(models[0].clone());
-
-            let mut chunk = SparseTensorChunk::from(kitchen_island);
-            chunk.transform *= Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
-
-            src_chunk = tensor::combine(src_chunk, chunk);
-            scene.terrain.push(src_chunk);
-
             let (models, _) = vox::open("./assets/floor.vox");
             let mut floor = SparseTensorChunk::from(Model::from(models[0].clone()));
             floor.transform *= Mat4::from_translation(vec3(-200.0, -5.0, 0.0));
@@ -85,17 +66,11 @@ impl Game {
 
             scene.terrain.push(floor);
 
-            let (models, _) = vox::open("./assets/doorframe.vox");
-            let mut frame = SparseTensorChunk::from(Model::from(models[0].clone()));
-            frame.transform *= Mat4::from_translation(vec3(0.0, 1.0, 0.0));
-
-            scene.terrain.push(frame);
-
-            let (models, _) = vox::open("./assets/wall.vox");
-            let mut wall = SparseTensorChunk::from(Model::from(models[0].clone()));
-            wall.transform *= Mat4::from_translation(vec3(-40.0, 1.0, 0.0));
-
-            scene.terrain.push(wall);
+            let player_block = terrain::closest_block(scene.camera().position);
+            let map_block = terrain::MapBlock::from_scratch(player_block);
+            let mut terrain = map_block.gen_terrain(terrain::EMPTY_MASK);
+            terrain.compress();
+            scene.terrain.push(terrain);
         }
 
         // FPS
