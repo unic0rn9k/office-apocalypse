@@ -89,7 +89,7 @@ impl<'a> IntoIterator for &'a SparseTensorChunk {
     type Item = <HashMap<UVec3, MaterialId> as IntoIterator>::Item;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.data.into_iter()
+        self.data.clone().into_iter()
     }
 }
 
@@ -99,6 +99,7 @@ pub fn combine(a: SparseTensorChunk, b: SparseTensorChunk) -> SparseTensorChunk 
     let v3 = |v: Vec4| Vec3::from_slice(&v.to_array()[0..3]).as_uvec3();
 
     let mut c = SparseTensorChunk::nothing();
+    let mut dim = UVec3::ZERO;
 
     let map = |t: Mat4| move |(a, b): (UVec3, MaterialId)| (v3(t * v4(a.as_vec3())), b);
 
@@ -108,9 +109,11 @@ pub fn combine(a: SparseTensorChunk, b: SparseTensorChunk) -> SparseTensorChunk 
         .chain(b.into_iter().map(map(b.transform)))
     {
         let index = UVec3::from_array(position.to_array().map(|v| v as _));
+        dim = dim.max(index);
         c.insert(index, Some(material_id));
     }
 
+    c.dim = dim;
     c
 }
 

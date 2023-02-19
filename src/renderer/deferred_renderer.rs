@@ -266,7 +266,7 @@ impl<'a> DeferredRenderer<'a> {
         let offset = matrices.len();
         for (i, chunk) in scene.terrain.iter().enumerate() {
             matrices.push([chunk.transform, camera.view_projection() * chunk.transform]);
-            voxels.extend(chunk.into_iter().map(|&(position, material_id)| Voxel {
+            voxels.extend(chunk.into_iter().map(|(position, material_id)| Voxel {
                 position: position.as_vec3(),
                 chunk_id: (i + offset) as _,
                 material_id: material_id.0 as _,
