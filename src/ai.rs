@@ -13,7 +13,7 @@ pub struct Brain {
 impl Brain {
     // Dijkstra path finding (breadth first search)
     // The algorithm will spin forever, if there is no path.
-    pub fn append_destination(&mut self, dest: UVec3, scene: &SparseTensorChunk) {
+    pub fn append_destination(&mut self, dest: UVec3, scene: &Vec<SparseTensorChunk>) {
         let mut reached = HashMap::<IVec3, Vec<IVec3>>::new();
         reached.insert(self.position.as_ivec3(), vec![]);
 
@@ -39,15 +39,24 @@ impl Brain {
                 break;
             }
 
-            for n in dirs {
-                if reached.contains_key(&(p + n))
-                    || (p + n).clamp(
+            'pis: for n in dirs {
+                let mut out_of_bounds = true;
+                for scene in scene {
+                    if (p + n).clamp(
                         IVec3::ZERO,
                         scene.dim.as_ivec3() - IVec3 { x: 1, y: 1, z: 1 },
-                    ) != (p + n)
-                    || scene.voxel((p + n).as_uvec3()).is_some()
-                {
-                    continue;
+                    ) == (p + n)
+                    {
+                        out_of_bounds = false
+                    } else {
+                        continue;
+                    }
+                    if reached.contains_key(&(p + n)) || scene.voxel((p + n).as_uvec3()).is_some() {
+                        continue 'pis;
+                    }
+                }
+                if out_of_bounds {
+                    continue 'pis;
                 }
 
                 let mut tmp = match reached.get(&p) {
@@ -85,7 +94,7 @@ fn straight() {
 
     //env.insert(UVec3 { x: 1, y: 0, z: 0 }, Some(MaterialId(0)));
 
-    thing.append_destination(UVec3 { x: 3, y: 0, z: 0 }, &env);
+    thing.append_destination(UVec3 { x: 3, y: 0, z: 0 }, &vec![env]);
 
     assert_eq!(
         thing.absolute_route(),

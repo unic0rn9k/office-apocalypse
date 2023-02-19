@@ -4,13 +4,13 @@ use glam::{vec3, Mat4, UVec3, Vec3};
 
 use crate::format::vox::{self, VoxModel};
 use crate::scene::Model;
-use crate::tensor::SparseTensorChunk;
+use crate::tensor::{self, SparseTensorChunk};
 
-const FOV: usize = 10; // Must be even
+const FOV: usize = 6; // Must be even
 const CUBICAL_SIZE: u32 = 40;
 const SEED: f32 = 123.4;
 
-fn random(v: Vec3, r: Range<usize>) -> usize {
+fn random(v: Vec3, r: Range<usize>, variant: usize) -> usize {
     let a: usize = match r.start_bound() {
         std::ops::Bound::Included(a) => *a,
         _ => panic!("invalid bound for random number generation"),
@@ -19,42 +19,64 @@ fn random(v: Vec3, r: Range<usize>) -> usize {
         std::ops::Bound::Excluded(b) => *b,
         _ => panic!("invalid bound for random number generation"),
     } - a;
-    (((v.x + v.y + v.z) * SEED).abs() as usize % b) + a
+
+    let x = (v.x * SEED).abs() as usize;
+    let y = (v.y * SEED).abs() as usize + variant;
+    let z = (v.z * SEED).abs() as usize;
+
+    let r = (x | z) & y;
+
+    r % b + a
 }
 
-#[derive(Clone, Copy, Debug)]
-enum Asset {
-    Kitchen,
-    Door,
-    Nil,
-}
-const ASSETS: &[Asset] = &[Asset::Kitchen, Asset::Door];
+macro_rules! assets {
+    ($($asset: ident),*) => {
+        #[allow(non_camel_case_types)]
+        #[derive(Clone, Copy, Debug)]
+        enum Asset {
+            $($asset,)*
+            Nil,
+        }
+        const ASSETS: &[Asset] = &[$(Asset::$asset),*];
+
+        impl Asset {
+            fn path(&self) -> String {
+                use Asset::*;
+                format!(
+                    "assets/{}.vox",
+                    match self {
+                        $($asset => stringify!($asset),)*
+                        Nil => panic!("Tried to load nil-asset"),
+                    }
+                )
+            }
+        }
+}}
+
+assets!(
+    kitchen,
+    chair,
+    desk,
+    doorframe,
+    floor,
+    kitchen_island,
+    laptop,
+    plant,
+    wall
+);
 
 impl Asset {
-    fn path(&self) -> String {
-        use Asset::*;
-        format!(
-            "assets/{}.vox",
-            match self {
-                Kitchen => "kitchen",
-                Door => "door",
-                Nil => panic!("Tried to load nil-asset"),
-            }
-        )
-    }
-
     fn chunk(&self, map_pos: UVec3) -> SparseTensorChunk {
-        let mut ret = SparseTensorChunk::nothing(UVec3::ZERO);
         let translation = (map_pos * CUBICAL_SIZE).as_vec3();
 
         let rotate_90 = Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
         let transform = Mat4::from_translation(translation);
 
         let path = self.path();
-        let chunk = SparseTensorChunk::from(Model::from(vox::open(path).0[0].clone()));
+        let mut chunk = SparseTensorChunk::from(Model::from(vox::open(path).0[0].clone()));
 
-        //ret
-        todo!()
+        chunk.transform *= transform;
+        chunk
     }
 }
 
@@ -84,7 +106,7 @@ impl MapBlock {
         for y in 0..FOV {
             for x in 0..FOV {
                 let blk_pos = blk_pos(x, y, pos);
-                data[y][x] = ASSETS[random(blk_pos, 0..ASSETS.len())]
+                data[y][x] = ASSETS[random(blk_pos, 0..ASSETS.len(), 0)]
             }
         }
 
@@ -99,7 +121,7 @@ impl MapBlock {
         for y in 0..FOV {
             for x in 0..FOV {
                 let new_pos = blk_pos(x, y, self.center);
-                if old_pos.abs_diff_eq(new_pos, FOV as f32) {
+                if old_pos.abs_diff_eq(new_pos, CUBICAL_SIZE as f32) {
                     tmp.0[y][x] = false;
                 }
             }
@@ -109,7 +131,18 @@ impl MapBlock {
     }
 
     fn gen_terrain(&self, mask: TerrainMask) -> SparseTensorChunk {
-        todo!()
+        let mut ret = SparseTensorChunk::nothing(UVec3::ZERO);
+
+        for y in 0..FOV {
+            for x in 0..FOV {
+                if mask.0[y][x] {
+                    let pos = blk_pos(x, y, self.center);
+                    ret = tensor::combine(ret, self.data[y][x].chunk(pos.as_uvec3()));
+                }
+            }
+        }
+
+        ret
     }
 }
 
@@ -127,10 +160,16 @@ impl std::fmt::Debug for MapBlock {
     }
 }
 
+fn closest_block(p: Vec3) -> Vec3 {
+    let mut tmp = (p.as_uvec3() / CUBICAL_SIZE).as_vec3() * CUBICAL_SIZE as f32;
+    tmp.y = 31.;
+    tmp
+}
+
 #[test]
 fn map() {
-    let a = vec3(1., 2., 3.);
-    let b = vec3(2., 2., 4.);
+    let a = closest_block(vec3(1., 2., 3.));
+    let b = closest_block(vec3(80., 2., 45.));
 
     let a_map = MapBlock::from_scratch(a);
     let b_map = MapBlock::from_scratch(b);
@@ -158,19 +197,4 @@ fn block_coordinates() {
         blk_pos(7, 6, vec3(0., 1., 40.)),
         vec3(2. * CUBICAL_SIZE as f32, 1., 2. * CUBICAL_SIZE as f32)
     );
-}
-
-#[test]
-fn _random() {
-    assert_eq!(
-        random(
-            Vec3 {
-                x: 3000.,
-                y: 3000.,
-                z: 3000.
-            },
-            0..1
-        ),
-        0
-    )
 }
