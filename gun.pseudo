@@ -1,0 +1,20 @@
+hitEnemy(enemy, damage):
+    ray = Ray(origin: cameraPosition, direction: cameraDirection, len: 100)
+    hit = castRay(ray, enemy)
+
+    if hit:
+        enemy.health -= damage
+
+castRay(ray, enemy):
+    t = 0
+    while t != ray.len:
+        v = floor(ray.origin + ray.direction * t);
+        
+        foreach voxel in enemy:
+            if voxel == v:
+                return true
+
+        t += 0.25
+    
+    return false
+    
