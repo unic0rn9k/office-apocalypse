@@ -242,7 +242,7 @@ impl<'a> Device<'a> {
             .map(|index| gl::COLOR_ATTACHMENT0 + index as u32)
             .collect();
 
-        println!("{points:?}");
+        // println!("{points:?}");
 
         unsafe {
             gl!(gl::NamedFramebufferDrawBuffers(

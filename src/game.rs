@@ -69,7 +69,7 @@ impl Game {
             let map_block = terrain::MapBlock::from_scratch(player_block);
             let terrain = map_block.gen_terrain(terrain::EMPTY_MASK);
             for n in &terrain{
-                println!("{n:?}");
+                // println!("{n:?}");
             }
             scene.terrain.push(terrain);
         }
