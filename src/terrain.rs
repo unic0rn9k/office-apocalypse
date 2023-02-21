@@ -66,9 +66,7 @@ assets!(
 );
 
 impl Asset {
-    fn chunk(&self, map_pos: UVec3) -> SparseTensorChunk {
-        let translation = (map_pos * CUBICAL_SIZE).as_vec3();
-
+    fn chunk(&self, translation: Vec3) -> SparseTensorChunk {
         let rotate_90 = Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
         let transform = Mat4::from_translation(translation);
 
@@ -85,8 +83,8 @@ fn blk_pos(x: usize, y: usize, center: Vec3) -> Vec3 {
     let min = vec3(min, 0., min);
     let p = vec3(
         x as f32 * CUBICAL_SIZE as f32,
-        0.,
         y as f32 * CUBICAL_SIZE as f32,
+        125.,
     );
 
     center + min + p
@@ -138,7 +136,7 @@ impl MapBlock {
             for x in 0..FOV {
                 if mask.0[y][x] {
                     let pos = blk_pos(x, y, self.center);
-                    ret = tensor::combine(ret, self.data[y][x].chunk(pos.as_uvec3()));
+                    ret = tensor::combine(ret, self.data[y][x].chunk(pos));
                 }
             }
         }
@@ -153,7 +151,9 @@ impl std::fmt::Debug for MapBlock {
         for y in 0..FOV {
             for x in 0..FOV {
                 let lbl = format!("{:?}", self.data[y][x]);
-                write!(f, "{lbl}{}", " ".repeat(len - lbl.len()))?;
+                let p = blk_pos(x, y, self.center);
+                let p = format!("{},{}", p.x, p.z);
+                write!(f, "{p}:{lbl}{}", " ".repeat(len - lbl.len()))?;
             }
             writeln!(f)?;
         }
