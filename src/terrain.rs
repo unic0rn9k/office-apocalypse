@@ -66,9 +66,7 @@ assets!(
 );
 
 impl Asset {
-    fn chunk(&self, map_pos: UVec3) -> SparseTensorChunk {
-        let translation = (map_pos * CUBICAL_SIZE).as_vec3();
-
+    fn chunk(&self, translation: Vec3) -> SparseTensorChunk {
         let rotate_90 = Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
         let transform = Mat4::from_translation(translation);
 
@@ -85,22 +83,23 @@ fn blk_pos(x: usize, y: usize, center: Vec3) -> Vec3 {
     let min = vec3(min, 0., min);
     let p = vec3(
         x as f32 * CUBICAL_SIZE as f32,
-        0.,
         y as f32 * CUBICAL_SIZE as f32,
+        125.,
     );
 
     center + min + p
 }
 
-struct TerrainMask([[bool; FOV]; FOV]);
+pub struct TerrainMask([[bool; FOV]; FOV]);
+pub const EMPTY_MASK: TerrainMask = TerrainMask([[true; FOV]; FOV]);
 
-struct MapBlock {
+pub struct MapBlock {
     center: Vec3,
     data: [[Asset; FOV]; FOV],
 }
 
 impl MapBlock {
-    fn from_scratch(pos: Vec3) -> Self {
+    pub fn from_scratch(pos: Vec3) -> Self {
         let mut data = [[Asset::Nil; FOV]; FOV];
 
         for y in 0..FOV {
@@ -115,7 +114,7 @@ impl MapBlock {
 
     /// A mask of elements that needs to be added to the terrain,
     /// for the new self map, based on the old_pos
-    fn mask(&self, old_pos: Vec3) -> TerrainMask {
+    pub fn mask(&self, old_pos: Vec3) -> TerrainMask {
         let mut tmp = TerrainMask([[true; FOV]; FOV]);
 
         for y in 0..FOV {
@@ -130,14 +129,14 @@ impl MapBlock {
         tmp
     }
 
-    fn gen_terrain(&self, mask: TerrainMask) -> SparseTensorChunk {
+    pub fn gen_terrain(&self, mask: TerrainMask) -> SparseTensorChunk {
         let mut ret = SparseTensorChunk::nothing(UVec3::ZERO);
 
         for y in 0..FOV {
             for x in 0..FOV {
                 if mask.0[y][x] {
                     let pos = blk_pos(x, y, self.center);
-                    ret = tensor::combine(ret, self.data[y][x].chunk(pos.as_uvec3()));
+                    ret = tensor::combine(ret, self.data[y][x].chunk(pos));
                 }
             }
         }
@@ -152,7 +151,9 @@ impl std::fmt::Debug for MapBlock {
         for y in 0..FOV {
             for x in 0..FOV {
                 let lbl = format!("{:?}", self.data[y][x]);
-                write!(f, "{lbl}{}", " ".repeat(len - lbl.len()))?;
+                let p = blk_pos(x, y, self.center);
+                let p = format!("{},{}", p.x, p.z);
+                write!(f, "{p}:{lbl}{}", " ".repeat(len - lbl.len()))?;
             }
             writeln!(f)?;
         }
@@ -160,7 +161,7 @@ impl std::fmt::Debug for MapBlock {
     }
 }
 
-fn closest_block(p: Vec3) -> Vec3 {
+pub fn closest_block(p: Vec3) -> Vec3 {
     let mut tmp = (p.as_uvec3() / CUBICAL_SIZE).as_vec3() * CUBICAL_SIZE as f32;
     tmp.y = 31.;
     tmp
