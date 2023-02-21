@@ -3,7 +3,7 @@ use std::iter::FilterMap;
 
 use glam::{Mat4, UVec3, Vec3, Vec4};
 
-use crate::scene::{MaterialId, Model};
+use crate::scene::{MaterialId, Model, Object};
 
 /// # Notes
 /// The tensor functionality will be used for:
@@ -77,6 +77,22 @@ impl From<Model> for SparseTensorChunk {
             temp.insert(index, Some(material_id));
         }
         temp
+    }
+}
+
+impl From<Object> for SparseTensorChunk {
+    fn from(mut value: Object) -> Self {
+        if value.transform == Mat4::IDENTITY {
+            SparseTensorChunk::from(value.model)
+        } else {
+            value
+                .model
+                .positions
+                .iter_mut()
+                .for_each(|(position, _)| *position = value.transform.transform_point3(*position));
+
+            SparseTensorChunk::from(value.model)
+        }
     }
 }
 

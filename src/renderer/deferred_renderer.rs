@@ -236,8 +236,8 @@ impl<'a> DeferredRenderer<'a> {
         let entities = scene.scene_graph.mutated_entities();
         let camera = scene.camera();
 
-        let objects = |entity: &Entity| {
-            if let Entity::Object(o) = entity.clone() {
+        let objects = |entity: (SceneNodeId, &Entity)| {
+            if let Entity::Object(o) = entity.1.clone() {
                 Some(o)
             } else {
                 None
@@ -280,8 +280,8 @@ impl<'a> DeferredRenderer<'a> {
     fn extract_lights(scene: &mut Scene) -> Vec<Light> {
         let entities = scene.scene_graph.mutated_entities();
 
-        let lights = |entity: &Entity| {
-            if let Entity::Light(l) = entity.clone() {
+        let lights = |entity: (SceneNodeId, &Entity)| {
+            if let Entity::Light(l) = entity.1.clone() {
                 Some(l)
             } else {
                 None

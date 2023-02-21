@@ -136,9 +136,9 @@ impl<'a> Renderer<'a> {
             .clear(vec4(0.0, 0.0, 0.0, 1.0), true);
 
         deferred_renderer.render(scene);
-        // text_renderer.render(scene);
+        text_renderer.render(scene, &mut device.default_framebuffer());
 
-        // device.unbind_framebuffer();
+        device.unbind_framebuffer();
         swapchain.present();
 
         Some(1.0)
